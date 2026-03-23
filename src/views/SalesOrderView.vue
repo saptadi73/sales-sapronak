@@ -1,0 +1,451 @@
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import QrScanner from '@/components/QrScanner.vue'
+import {
+  createDraftOrder,
+  getCustomerDetailByQr,
+  getOrderTypes,
+  getPaymentTerms,
+  getProducts,
+} from '@/services/odooApi'
+import { useSessionStore } from '@/stores/session'
+import type {
+  CustomerDetailData,
+  DraftOrderResult,
+  OrderTypeItem,
+  PaymentTermItem,
+  ProductItem,
+} from '@/types/odoo'
+import { extractCustomerQrRef, formatCurrency, toOdooDateTime } from '@/utils/qr'
+
+interface OrderLineForm {
+  rowId: number
+  product_id: number | null
+  product_uom_qty: number
+  price_unit: number
+}
+
+const route = useRoute()
+const sessionStore = useSessionStore()
+
+const loadingMaster = ref(false)
+const loadingSubmit = ref(false)
+const loadingCustomer = ref(false)
+const errorMessage = ref('')
+const successMessage = ref('')
+
+const customerQrInput = ref('')
+const customer = ref<CustomerDetailData | null>(null)
+const createdOrder = ref<DraftOrderResult | null>(null)
+
+const products = ref<ProductItem[]>([])
+const paymentTerms = ref<PaymentTermItem[]>([])
+const orderTypes = ref<OrderTypeItem[]>([])
+
+const form = reactive({
+  commitment_date: '',
+  payment_term_id: null as number | null,
+  sale_order_type: '' as string,
+  lines: [
+    {
+      rowId: 1,
+      product_id: null,
+      product_uom_qty: 1,
+      price_unit: 0,
+    },
+  ] as OrderLineForm[],
+})
+
+const grandTotal = computed(() =>
+  form.lines.reduce((sum, item) => sum + item.product_uom_qty * item.price_unit, 0),
+)
+
+function getProductPrice(productId: number | null) {
+  if (!productId) {
+    return 0
+  }
+
+  const found = products.value.find((item) => item.product_id === productId)
+  return found?.list_price ?? 0
+}
+
+function lineSubtotal(line: OrderLineForm) {
+  return line.product_uom_qty * line.price_unit
+}
+
+function onProductChange(line: OrderLineForm) {
+  if (!line.product_id) {
+    return
+  }
+
+  line.price_unit = getProductPrice(line.product_id)
+}
+
+function addLine() {
+  form.lines.push({
+    rowId: Date.now(),
+    product_id: null,
+    product_uom_qty: 1,
+    price_unit: 0,
+  })
+}
+
+function removeLine(rowId: number) {
+  form.lines = form.lines.filter((item) => item.rowId !== rowId)
+  if (form.lines.length === 0) {
+    addLine()
+  }
+}
+
+async function fetchCustomerByQrValue(rawValue: string) {
+  const qrRef = extractCustomerQrRef(rawValue)
+  if (!qrRef) {
+    errorMessage.value = 'QR customer tidak valid.'
+    return
+  }
+
+  loadingCustomer.value = true
+  errorMessage.value = ''
+
+  try {
+    const response = await getCustomerDetailByQr(sessionStore.baseUrl, qrRef)
+    customer.value = response.data
+    customerQrInput.value = qrRef
+
+    if (response.data.payment_term_id && !form.payment_term_id) {
+      form.payment_term_id = response.data.payment_term_id
+    }
+  } catch (error) {
+    customer.value = null
+    errorMessage.value = error instanceof Error ? error.message : 'Gagal memuat customer dari QR.'
+  } finally {
+    loadingCustomer.value = false
+  }
+}
+
+async function handleManualQr() {
+  await fetchCustomerByQrValue(customerQrInput.value)
+}
+
+function handleDetectedQr(value: string) {
+  customerQrInput.value = value
+  fetchCustomerByQrValue(value)
+}
+
+async function loadMaster() {
+  loadingMaster.value = true
+  errorMessage.value = ''
+
+  try {
+    const [productResponse, paymentTermResponse, orderTypeResponse] = await Promise.all([
+      getProducts(sessionStore.baseUrl, { search: '', limit: 100, offset: 0 }),
+      getPaymentTerms(sessionStore.baseUrl),
+      getOrderTypes(sessionStore.baseUrl),
+    ])
+
+    products.value = productResponse.data.items
+    paymentTerms.value = paymentTermResponse.data.items
+    orderTypes.value = orderTypeResponse.data.items
+
+    const firstOrderType = orderTypes.value[0]
+    if (firstOrderType && !form.sale_order_type) {
+      form.sale_order_type = firstOrderType.value
+    }
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : 'Gagal memuat master data.'
+  } finally {
+    loadingMaster.value = false
+  }
+}
+
+function validateForm() {
+  if (!customer.value?.customer_qr_ref) {
+    return 'Customer dari QR wajib dipilih.'
+  }
+
+  if (!form.commitment_date) {
+    return 'Tanggal pengiriman wajib diisi.'
+  }
+
+  if (!form.payment_term_id) {
+    return 'Term of Payment wajib dipilih.'
+  }
+
+  if (!form.sale_order_type) {
+    return 'Type Sales Order wajib dipilih.'
+  }
+
+  const validLines = form.lines.filter((line) => line.product_id && line.product_uom_qty > 0)
+  if (validLines.length === 0) {
+    return 'Minimal satu item produk wajib diisi.'
+  }
+
+  return ''
+}
+
+async function submitDraftOrder() {
+  errorMessage.value = ''
+  successMessage.value = ''
+  createdOrder.value = null
+
+  const validationMessage = validateForm()
+  if (validationMessage) {
+    errorMessage.value = validationMessage
+    return
+  }
+
+  loadingSubmit.value = true
+
+  try {
+    const payloadLines = form.lines
+      .filter((line) => line.product_id && line.product_uom_qty > 0)
+      .map((line) => ({
+        product_id: Number(line.product_id),
+        product_uom_qty: Number(line.product_uom_qty),
+        price_unit: Number(line.price_unit),
+      }))
+
+    const response = await createDraftOrder(sessionStore.baseUrl, {
+      partner_id: customer.value?.partner_id,
+      customer_qr_ref: customer.value?.customer_qr_ref,
+      commitment_date: toOdooDateTime(form.commitment_date),
+      payment_term_id: form.payment_term_id ?? undefined,
+      sale_order_type: form.sale_order_type,
+      order_line: payloadLines,
+    })
+
+    createdOrder.value = response.data
+    successMessage.value = 'Draft Sales Order berhasil dibuat.'
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : 'Gagal membuat draft Sales Order.'
+  } finally {
+    loadingSubmit.value = false
+  }
+}
+
+onMounted(async () => {
+  await loadMaster()
+
+  if (typeof route.query.qr === 'string' && route.query.qr) {
+    customerQrInput.value = route.query.qr
+    await fetchCustomerByQrValue(route.query.qr)
+  }
+})
+</script>
+
+<template>
+  <section class="space-y-5">
+    <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+      <h1 class="text-xl font-bold text-slate-900">Create Draft Sales Order</h1>
+      <p class="mt-1 text-sm text-slate-600">
+        Scan QR customer untuk autofill customer, lalu isi tanggal pengiriman, payment term, type
+        order, dan item produk.
+      </p>
+      <p v-if="loadingMaster" class="mt-2 text-sm text-slate-500">Memuat master data...</p>
+      <div v-if="loadingMaster" class="mt-3 space-y-2">
+        <div class="h-4 w-full animate-pulse rounded bg-slate-100"></div>
+        <div class="h-4 w-3/4 animate-pulse rounded bg-slate-100"></div>
+      </div>
+    </div>
+
+    <QrScanner @detected="handleDetectedQr" />
+
+    <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+      <div class="grid gap-4 md:grid-cols-3">
+        <label class="space-y-1 md:col-span-2">
+          <span class="text-sm font-medium text-slate-700">Customer QR (scan/manual)</span>
+          <input
+            v-model="customerQrInput"
+            type="text"
+            placeholder="CUSTQR2603-000001 atau JSON"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-emerald-500 focus:ring"
+          />
+        </label>
+        <div class="flex items-end">
+          <button
+            type="button"
+            :disabled="loadingCustomer"
+            class="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300"
+            @click="handleManualQr"
+          >
+            {{ loadingCustomer ? 'Mencari...' : 'Ambil Customer' }}
+          </button>
+        </div>
+      </div>
+
+      <div v-if="loadingCustomer" class="mt-4 space-y-2 rounded-xl bg-slate-50 p-3">
+        <div class="h-4 w-3/4 animate-pulse rounded bg-slate-200"></div>
+        <div class="h-4 w-1/2 animate-pulse rounded bg-slate-200"></div>
+        <div class="h-4 w-2/3 animate-pulse rounded bg-slate-200"></div>
+      </div>
+
+      <div v-if="customer" class="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+        <p><span class="font-medium">Nama:</span> {{ customer.name }}</p>
+        <p><span class="font-medium">QR Ref:</span> {{ customer.customer_qr_ref }}</p>
+        <p>
+          <span class="font-medium">Payment Term:</span> {{ customer.payment_term_name || '-' }}
+        </p>
+      </div>
+    </section>
+
+    <section class="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+      <div v-if="loadingMaster" class="space-y-2">
+        <div class="h-10 w-full animate-pulse rounded bg-slate-100"></div>
+        <div class="h-10 w-full animate-pulse rounded bg-slate-100"></div>
+        <div class="h-10 w-full animate-pulse rounded bg-slate-100"></div>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-3">
+        <label class="space-y-1">
+          <span class="text-sm font-medium text-slate-700">Tanggal Pengiriman</span>
+          <input
+            v-model="form.commitment_date"
+            type="datetime-local"
+            :disabled="loadingMaster"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-emerald-500 focus:ring"
+          />
+        </label>
+
+        <label class="space-y-1">
+          <span class="text-sm font-medium text-slate-700">Term of Payment</span>
+          <select
+            v-model.number="form.payment_term_id"
+            :disabled="loadingMaster"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-emerald-500 focus:ring"
+          >
+            <option :value="null">Pilih Term</option>
+            <option
+              v-for="term in paymentTerms"
+              :key="term.payment_term_id"
+              :value="term.payment_term_id"
+            >
+              {{ term.name }}
+            </option>
+          </select>
+        </label>
+
+        <label class="space-y-1">
+          <span class="text-sm font-medium text-slate-700">Type Sales Order</span>
+          <select
+            v-model="form.sale_order_type"
+            :disabled="loadingMaster"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-emerald-500 focus:ring"
+          >
+            <option value="">Pilih Type</option>
+            <option v-for="type in orderTypes" :key="type.value" :value="type.value">
+              {{ type.label }}
+            </option>
+          </select>
+        </label>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-left text-sm text-slate-700">
+          <thead class="bg-slate-100 text-xs uppercase tracking-wide text-slate-600">
+            <tr>
+              <th class="px-3 py-2">Product</th>
+              <th class="px-3 py-2">Qty</th>
+              <th class="px-3 py-2">Price Unit</th>
+              <th class="px-3 py-2">Sub Total</th>
+              <th class="px-3 py-2">Aksi</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="line in form.lines"
+              :key="line.rowId"
+              class="border-b border-slate-100 align-top"
+            >
+              <td class="px-3 py-2">
+                <select
+                  v-model.number="line.product_id"
+                  :disabled="loadingMaster"
+                  class="w-52 rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none ring-emerald-500 focus:ring"
+                  @change="onProductChange(line)"
+                >
+                  <option :value="null">Pilih Product</option>
+                  <option
+                    v-for="product in products"
+                    :key="product.product_id"
+                    :value="product.product_id"
+                  >
+                    {{ product.name }}
+                  </option>
+                </select>
+              </td>
+              <td class="px-3 py-2">
+                <input
+                  v-model.number="line.product_uom_qty"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  :disabled="loadingMaster"
+                  class="w-28 rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none ring-emerald-500 focus:ring"
+                />
+              </td>
+              <td class="px-3 py-2">
+                <input
+                  v-model.number="line.price_unit"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  :disabled="loadingMaster"
+                  class="w-36 rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none ring-emerald-500 focus:ring"
+                />
+              </td>
+              <td class="px-3 py-2 font-medium">{{ formatCurrency(lineSubtotal(line)) }}</td>
+              <td class="px-3 py-2">
+                <button
+                  type="button"
+                  :disabled="loadingMaster"
+                  class="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700"
+                  @click="removeLine(line.rowId)"
+                >
+                  Hapus
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <button
+          type="button"
+          :disabled="loadingMaster"
+          class="rounded-lg bg-slate-700 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+          @click="addLine"
+        >
+          + Tambah Product
+        </button>
+        <p class="text-base font-bold text-slate-900">Total: {{ formatCurrency(grandTotal) }}</p>
+      </div>
+
+      <p v-if="errorMessage" class="text-sm text-rose-600">{{ errorMessage }}</p>
+      <p v-if="successMessage" class="text-sm text-emerald-700">{{ successMessage }}</p>
+
+      <div
+        v-if="createdOrder"
+        class="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"
+      >
+        <p><span class="font-semibold">Order:</span> {{ createdOrder.name }}</p>
+        <p><span class="font-semibold">State:</span> {{ createdOrder.state }}</p>
+        <p><span class="font-semibold">Line:</span> {{ createdOrder.line_count }}</p>
+        <p>
+          <span class="font-semibold">Amount Total:</span>
+          {{ formatCurrency(createdOrder.amount_total) }}
+        </p>
+      </div>
+
+      <button
+        type="button"
+        :disabled="loadingSubmit || loadingMaster"
+        class="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300"
+        @click="submitDraftOrder"
+      >
+        {{ loadingSubmit ? 'Menyimpan...' : 'Create Draft Sales Order' }}
+      </button>
+    </section>
+  </section>
+</template>
