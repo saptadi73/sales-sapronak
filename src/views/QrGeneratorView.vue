@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { getCustomerQrPayloadById } from '@/services/odooApi'
+import { getCustomerQrPayloadById, getCustomerQrPayloadByRef } from '@/services/odooApi'
 import { useSessionStore } from '@/stores/session'
 
 const sessionStore = useSessionStore()
 
+type SearchMode = 'id' | 'sr_ref'
+const searchMode = ref<SearchMode>('id')
 const customerId = ref<number | null>(null)
+const customerSrRef = ref('')
 const format = ref<'ref' | 'json'>('ref')
 const loading = ref(false)
 const errorMessage = ref('')
@@ -30,8 +33,12 @@ onMounted(() => {
 })
 
 async function generateQr() {
-  if (!customerId.value) {
+  if (searchMode.value === 'id' && !customerId.value) {
     errorMessage.value = 'Customer ID wajib diisi.'
+    return
+  }
+  if (searchMode.value === 'sr_ref' && !customerSrRef.value.trim()) {
+    errorMessage.value = 'Customer SR Reference wajib diisi.'
     return
   }
 
@@ -39,10 +46,16 @@ async function generateQr() {
   errorMessage.value = ''
 
   try {
-    const response = await getCustomerQrPayloadById(sessionStore.baseUrl, {
-      customer_id: customerId.value,
-      format: format.value,
-    })
+    const response =
+      searchMode.value === 'sr_ref'
+        ? await getCustomerQrPayloadByRef(sessionStore.baseUrl, {
+            customer_qr_ref: customerSrRef.value.trim(),
+            format: format.value,
+          })
+        : await getCustomerQrPayloadById(sessionStore.baseUrl, {
+            customer_id: customerId.value!,
+            format: format.value,
+          })
 
     qrContent.value = response.data.qr_content
     customerName.value = response.data.name
@@ -110,18 +123,54 @@ function printQr() {
     <div>
       <h1 class="text-xl font-bold text-slate-900">Pembuatan QRCode Customer</h1>
       <p class="mt-1 text-sm text-slate-600">
-        Masukkan customer ID untuk generate QR, simpan PNG, atau print.
+        Masukkan customer ID atau SR Reference untuk generate QR, simpan PNG, atau print.
       </p>
     </div>
 
+    <div class="flex gap-2 rounded-lg border border-slate-200 bg-slate-100 p-1 w-fit">
+      <button
+        type="button"
+        :class="[
+          'rounded-md px-4 py-1.5 text-sm font-medium transition-colors',
+          searchMode === 'id'
+            ? 'bg-white text-slate-900 shadow-sm'
+            : 'text-slate-500 hover:text-slate-700',
+        ]"
+        @click="searchMode = 'id'"
+      >
+        Customer ID
+      </button>
+      <button
+        type="button"
+        :class="[
+          'rounded-md px-4 py-1.5 text-sm font-medium transition-colors',
+          searchMode === 'sr_ref'
+            ? 'bg-white text-slate-900 shadow-sm'
+            : 'text-slate-500 hover:text-slate-700',
+        ]"
+        @click="searchMode = 'sr_ref'"
+      >
+        SR Reference
+      </button>
+    </div>
+
     <div class="grid gap-4 sm:grid-cols-3">
-      <label class="space-y-1 sm:col-span-1">
+      <label v-if="searchMode === 'id'" class="space-y-1 sm:col-span-1">
         <span class="text-sm font-medium text-slate-700">Customer ID</span>
         <input
           v-model.number="customerId"
           type="number"
           min="1"
           placeholder="45"
+          class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-emerald-500 focus:ring"
+        />
+      </label>
+      <label v-else class="space-y-1 sm:col-span-1">
+        <span class="text-sm font-medium text-slate-700">Customer SR Reference</span>
+        <input
+          v-model="customerSrRef"
+          type="text"
+          placeholder="SR-0001"
           class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-emerald-500 focus:ring"
         />
       </label>

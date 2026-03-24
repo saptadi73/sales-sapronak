@@ -194,6 +194,16 @@ export function getCustomerQrPayloadById(
   })
 }
 
+export function getCustomerQrPayloadByRef(
+  baseUrl: string,
+  payload: { customer_qr_ref: string; format?: 'ref' | 'json' },
+) {
+  return postJsonRpc<CustomerQrPayloadData>(baseUrl, '/api/sales/customer-qr-payload-by-ref', {
+    customer_qr_ref: payload.customer_qr_ref,
+    format: payload.format ?? 'ref',
+  })
+}
+
 export function getCustomerDetailByQr(baseUrl: string, customerQrRef: string) {
   return postJsonRpc<CustomerDetailData>(baseUrl, '/api/sales/customer-detail-by-qr', {
     customer_qr_ref: customerQrRef,

@@ -22,9 +22,9 @@ Fokus dokumen ini:
 | `/api/sales/order-types` | `GET` | user | list type Sales Order |
 | `/api/sales/customer-qr-by-id` | `POST` | user | ambil `customer_qr_ref` dari `customer_id` |
 | `/api/sales/customer-qr-payload-by-id` | `POST` | user | ambil payload QR siap render dari `customer_id` |
-| `/api/sales/customer-detail-by-qr` | `POST` | user | detail customer dari QR |
-| `/api/sales/customer-accounting-summary-by-qr` | `POST` | user | summary aging hutang/piutang |
-| `/api/sales/orders-by-qr` | `POST` | user | histori Sales Order customer |
+| `/api/sales/customer-detail-by-qr` | `POST` | user | detail customer langsung dari `customer_qr_ref` |
+| `/api/sales/customer-accounting-summary-by-qr` | `POST` | user | summary aging hutang/piutang dari `customer_qr_ref` |
+| `/api/sales/orders-by-qr` | `POST` | user | histori Sales Order customer dari `customer_qr_ref` |
 | `/api/sales/draft-order` | `POST` | user | create draft Sales Order multi-item |
 
 ## Base URL
@@ -138,6 +138,9 @@ Catatan implementasi:
 - customer baru akan otomatis mendapat `customer_qr_ref`
 - customer lama akan terisi saat module install atau upgrade
 - referensi ini unik di database
+- jika frontend sudah menyimpan `customer_qr_ref`, frontend tidak perlu lagi menampilkan atau mengirim `customer_id` untuk flow lookup customer
+- flow yang sudah bisa langsung memakai `customer_qr_ref` adalah detail customer, summary accounting customer, dan histori order customer
+- endpoint yang masih membutuhkan `customer_id` hanya endpoint pembangkit QR awal: `customer-qr-by-id` dan `customer-qr-payload-by-id`
 
 ## Endpoint Master Data
 
@@ -228,6 +231,31 @@ Mengambil daftar type Sales Order dari backend.
 }
 ```
 
+## Panduan Frontend Jika Memakai `customer_qr_ref`
+
+Jika sisi frontend sudah menyimpan `customer_qr_ref`, maka frontend bisa memakai reference tersebut sebagai identifier customer untuk flow setelah QR terbentuk atau setelah customer pernah dipilih sebelumnya.
+
+Frontend bisa langsung memakai `customer_qr_ref` untuk endpoint berikut:
+
+- `POST /api/sales/customer-detail-by-qr`
+- `POST /api/sales/customer-accounting-summary-by-qr`
+- `POST /api/sales/orders-by-qr`
+
+Contoh request umum:
+
+```json
+{
+  "params": {
+    "customer_qr_ref": "CUSTQR2603-000001"
+  }
+}
+```
+
+Catatan integrasi:
+
+- jika frontend hanya perlu lookup ulang customer yang sudah punya QR reference, gunakan `customer_qr_ref`
+- jika frontend ingin membuat QR pertama kali dari customer yang dipilih dari master data, endpoint yang tersedia saat ini masih memakai `customer_id`
+- `customer_qr_ref` sudah cukup untuk flow scan, detail customer, summary accounting, dan histori order
 ## Endpoint Customer
 
 ### `POST /api/sales/customer-qr-by-id`
