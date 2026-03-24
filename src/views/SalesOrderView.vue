@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import ProductSearchInput from '@/components/ProductSearchInput.vue'
 import QrScanner from '@/components/QrScanner.vue'
 import {
   createDraftOrder,
   getCustomerDetailByQr,
   getOrderTypes,
   getPaymentTerms,
-  getProducts,
 } from '@/services/odooApi'
 import { useSessionStore } from '@/stores/session'
 import type {
@@ -39,9 +39,12 @@ const customerQrInput = ref('')
 const customer = ref<CustomerDetailData | null>(null)
 const createdOrder = ref<DraftOrderResult | null>(null)
 
-const products = ref<ProductItem[]>([])
 const paymentTerms = ref<PaymentTermItem[]>([])
 const orderTypes = ref<OrderTypeItem[]>([])
+const defaultOrderTypes: OrderTypeItem[] = [
+  { value: 'kering', label: 'Kering' },
+  { value: 'basah', label: 'Basah' },
+]
 
 const form = reactive({
   commitment_date: '',
@@ -61,25 +64,12 @@ const grandTotal = computed(() =>
   form.lines.reduce((sum, item) => sum + item.product_uom_qty * item.price_unit, 0),
 )
 
-function getProductPrice(productId: number | null) {
-  if (!productId) {
-    return 0
-  }
-
-  const found = products.value.find((item) => item.product_id === productId)
-  return found?.list_price ?? 0
-}
-
 function lineSubtotal(line: OrderLineForm) {
   return line.product_uom_qty * line.price_unit
 }
 
-function onProductChange(line: OrderLineForm) {
-  if (!line.product_id) {
-    return
-  }
-
-  line.price_unit = getProductPrice(line.product_id)
+function onLineProductSelect(line: OrderLineForm, product: ProductItem) {
+  line.price_unit = product.list_price ?? 0
 }
 
 function addLine() {
@@ -138,22 +128,38 @@ async function loadMaster() {
   errorMessage.value = ''
 
   try {
-    const [productResponse, paymentTermResponse, orderTypeResponse] = await Promise.all([
-      getProducts(sessionStore.baseUrl, { search: '', limit: 100, offset: 0 }),
+    const [paymentTermResult, orderTypeResult] = await Promise.allSettled([
       getPaymentTerms(sessionStore.baseUrl),
       getOrderTypes(sessionStore.baseUrl),
     ])
 
-    products.value = productResponse.data.items
-    paymentTerms.value = paymentTermResponse.data.items
-    orderTypes.value = orderTypeResponse.data.items
+    const errors: string[] = []
+
+    if (paymentTermResult.status === 'fulfilled') {
+      paymentTerms.value = paymentTermResult.value.data.items
+    } else {
+      paymentTerms.value = []
+      errors.push('term of payment')
+    }
+
+    if (orderTypeResult.status === 'fulfilled') {
+      orderTypes.value =
+        orderTypeResult.value.data.items.length > 0
+          ? orderTypeResult.value.data.items
+          : defaultOrderTypes
+    } else {
+      orderTypes.value = defaultOrderTypes
+      errors.push('type sales order')
+    }
 
     const firstOrderType = orderTypes.value[0]
     if (firstOrderType && !form.sale_order_type) {
       form.sale_order_type = firstOrderType.value
     }
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : 'Gagal memuat master data.'
+
+    if (errors.length > 0) {
+      errorMessage.value = `Sebagian master data belum berhasil dimuat dari API: ${errors.join(', ')}.`
+    }
   } finally {
     loadingMaster.value = false
   }
@@ -358,21 +364,11 @@ onMounted(async () => {
               class="border-b border-slate-100 align-top"
             >
               <td class="px-3 py-2">
-                <select
-                  v-model.number="line.product_id"
+                <ProductSearchInput
+                  v-model="line.product_id"
                   :disabled="loadingMaster"
-                  class="w-52 rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none ring-emerald-500 focus:ring"
-                  @change="onProductChange(line)"
-                >
-                  <option :value="null">Pilih Product</option>
-                  <option
-                    v-for="product in products"
-                    :key="product.product_id"
-                    :value="product.product_id"
-                  >
-                    {{ product.name }}
-                  </option>
-                </select>
+                  @select="onLineProductSelect(line, $event)"
+                />
               </td>
               <td class="px-3 py-2">
                 <input

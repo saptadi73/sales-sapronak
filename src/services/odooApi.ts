@@ -21,6 +21,56 @@ interface ApiToastDetail {
   message: string
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function coerceNumber(value: unknown) {
+  return typeof value === 'number' ? value : Number(value ?? 0)
+}
+
+function coerceString(value: unknown, fallback = '') {
+  return typeof value === 'string' ? value : fallback
+}
+
+function coerceOptionalString(value: unknown) {
+  return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+function coerceOptionalNumber(value: unknown) {
+  const numberValue = Number(value)
+  return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : undefined
+}
+
+function extractItems(data: unknown) {
+  if (Array.isArray(data)) {
+    return data
+  }
+
+  if (!isRecord(data)) {
+    return []
+  }
+
+  const candidates = ['items', 'results', 'data', 'records']
+  for (const key of candidates) {
+    const value = data[key]
+    if (Array.isArray(value)) {
+      return value
+    }
+  }
+
+  return []
+}
+
+function extractCount(data: unknown, fallbackCount: number) {
+  if (!isRecord(data)) {
+    return fallbackCount
+  }
+
+  const count = data.count
+  return typeof count === 'number' ? count : fallbackCount
+}
+
 export interface CorsDebugResult {
   timestamp: string
   appOrigin: string
@@ -169,19 +219,132 @@ export function getProducts(
   baseUrl: string,
   payload: { search?: string; limit?: number; offset?: number } = {},
 ) {
-  return postJsonRpc<{ items: ProductItem[]; count: number }>(baseUrl, '/api/sales/products', {
+  return postJsonRpc<unknown>(baseUrl, '/api/sales/products', {
     search: payload.search ?? '',
     limit: payload.limit ?? 50,
     offset: payload.offset ?? 0,
+  }).then((response) => {
+    const items = extractItems(response.data)
+      .map((item): ProductItem | null => {
+        if (!isRecord(item)) {
+          return null
+        }
+
+        const productId = coerceNumber(item.product_id ?? item.id)
+        const name = coerceString(item.name)
+        if (!productId || !name) {
+          return null
+        }
+
+        return {
+          product_id: productId,
+          default_code: coerceOptionalString(item.default_code),
+          name,
+          list_price: coerceNumber(item.list_price ?? item.price ?? item.lst_price),
+          uom_id: coerceOptionalNumber(item.uom_id),
+          uom_name: coerceOptionalString(item.uom_name),
+          currency_id: coerceOptionalNumber(item.currency_id),
+          currency_name: coerceOptionalString(item.currency_name),
+        }
+      })
+      .filter((item): item is ProductItem => Boolean(item))
+
+    return {
+      ...response,
+      data: {
+        items,
+        count: extractCount(response.data, items.length),
+      },
+    } satisfies ApiResponse<{ items: ProductItem[]; count: number }>
   })
 }
 
 export function getPaymentTerms(baseUrl: string) {
-  return postJsonRpc<{ items: PaymentTermItem[] }>(baseUrl, '/api/sales/payment-terms', {})
+  return postJsonRpc<unknown>(baseUrl, '/api/sales/payment-terms', {}).then((response) => {
+    const items = extractItems(response.data)
+      .map((item) => {
+        if (!isRecord(item)) {
+          return null
+        }
+
+        const paymentTermId = coerceNumber(item.payment_term_id ?? item.id)
+        const name = coerceString(item.name)
+        if (!paymentTermId || !name) {
+          return null
+        }
+
+        return {
+          payment_term_id: paymentTermId,
+          name,
+        } satisfies PaymentTermItem
+      })
+      .filter((item): item is PaymentTermItem => Boolean(item))
+
+    return {
+      ...response,
+      data: { items },
+    } satisfies ApiResponse<{ items: PaymentTermItem[] }>
+  })
 }
 
-export function getOrderTypes(baseUrl: string) {
-  return getJson<{ items: OrderTypeItem[] }>(baseUrl, '/api/sales/order-types')
+export async function getOrderTypes(baseUrl: string) {
+  let response: ApiResponse<unknown>
+
+  try {
+    response = await getJson<unknown>(baseUrl, '/api/sales/order-types')
+  } catch {
+    response = await postJsonRpc<unknown>(baseUrl, '/api/sales/order-types', {})
+  }
+
+  const mappedItems = extractItems(response.data)
+    .map((item): OrderTypeItem | null => {
+      if (typeof item === 'string') {
+        const value = item.trim()
+        if (!value) {
+          return null
+        }
+
+        return {
+          value,
+          label: value.charAt(0).toUpperCase() + value.slice(1),
+        }
+      }
+
+      if (!isRecord(item)) {
+        return null
+      }
+
+      const value = coerceString(
+        item.value ?? item.code ?? item.sale_order_type ?? item.id ?? item.key,
+      ).trim()
+      const label = coerceString(item.label ?? item.name ?? item.display_name, value).trim()
+      if (!value) {
+        return null
+      }
+
+      return {
+        value,
+        label: label || value,
+      } satisfies OrderTypeItem
+    })
+    .filter((item): item is OrderTypeItem => Boolean(item))
+
+  const dedupedItems = mappedItems.filter(
+    (item, index, arr) => arr.findIndex((candidate) => candidate.value === item.value) === index,
+  )
+
+  const items =
+    dedupedItems.length > 0
+      ? dedupedItems
+      : [
+          { value: 'kering', label: 'Kering' },
+          { value: 'basah', label: 'Basah' },
+        ]
+
+  return {
+    ...response,
+    data: { items },
+  } satisfies ApiResponse<{ items: OrderTypeItem[] }>
 }
 
 export function getCustomerQrPayloadById(
