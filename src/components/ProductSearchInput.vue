@@ -23,8 +23,10 @@ const results = ref<ProductItem[]>([])
 const loading = ref(false)
 const open = ref(false)
 const rootRef = ref<HTMLElement | null>(null)
+const inputWrapRef = ref<HTMLElement | null>(null)
 const dropdownStyle = ref<Record<string, string>>({})
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
+let resizeObserver: ResizeObserver | null = null
 
 watch(
   () => props.modelValue,
@@ -73,7 +75,7 @@ async function runSearch(q: string) {
     open.value = results.value.length > 0
     if (open.value) {
       await nextTick()
-      updateDropdownPosition()
+      updateDropdownPlacement()
     }
   } catch {
     results.value = []
@@ -83,24 +85,40 @@ async function runSearch(q: string) {
   }
 }
 
-function updateDropdownPosition() {
-  const rootElement = rootRef.value
-  if (!rootElement) {
+function updateDropdownPlacement() {
+  const anchorElement = inputWrapRef.value ?? rootRef.value
+  if (!anchorElement) {
     return
   }
 
-  const rect = rootElement.getBoundingClientRect()
-  const viewportBottom = window.innerHeight
-  const estimatedHeight = 260
-  const spaceBelow = viewportBottom - rect.bottom
-  const openUpward = spaceBelow < estimatedHeight && rect.top > estimatedHeight
-  const top = openUpward ? Math.max(8, rect.top - estimatedHeight - 4) : rect.bottom + 4
+  const rect = anchorElement.getBoundingClientRect()
+  const viewportHeight = window.innerHeight
+  const viewportWidth = window.innerWidth
+  const desiredHeight = 256
+  const gap = 4
+  const edgePadding = 8
+  const availableAbove = Math.max(0, rect.top - edgePadding)
+  const availableBelow = Math.max(0, viewportHeight - rect.bottom - edgePadding)
+  const openUpward = availableBelow < 180 && availableAbove > availableBelow
+  const maxHeight = Math.max(
+    96,
+    Math.min(desiredHeight, openUpward ? availableAbove - gap : availableBelow - gap),
+  )
+  const top = openUpward
+    ? Math.max(edgePadding, rect.top - maxHeight - gap)
+    : Math.min(viewportHeight - maxHeight - edgePadding, rect.bottom + gap)
+  const width = Math.max(220, rect.width)
+  const left = Math.min(
+    Math.max(edgePadding, rect.left),
+    Math.max(edgePadding, viewportWidth - width - edgePadding),
+  )
 
   dropdownStyle.value = {
     position: 'fixed',
-    top: `${Math.max(8, top)}px`,
-    left: `${Math.max(8, rect.left)}px`,
-    width: `${Math.max(220, rect.width)}px`,
+    top: `${top}px`,
+    left: `${left}px`,
+    width: `${width}px`,
+    maxHeight: `${maxHeight}px`,
   }
 }
 
@@ -113,7 +131,7 @@ function onInput() {
 function onFocus() {
   open.value = results.value.length > 0
   if (open.value) {
-    nextTick(updateDropdownPosition)
+    nextTick(updateDropdownPlacement)
   }
 }
 
@@ -143,33 +161,58 @@ function onBlur() {
   }, 200)
 }
 
+watch(open, async (isOpen) => {
+  if (!isOpen) {
+    return
+  }
+
+  await nextTick()
+  updateDropdownPlacement()
+})
+
 onMounted(() => {
-  const syncPosition = () => {
+  const syncDropdownPlacement = () => {
     if (open.value) {
-      updateDropdownPosition()
+      updateDropdownPlacement()
     }
   }
 
-  window.addEventListener('resize', syncPosition)
-  window.addEventListener('scroll', syncPosition, true)
+  window.addEventListener('resize', syncDropdownPlacement)
+  window.addEventListener('scroll', syncDropdownPlacement, true)
+
+  if (typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver(() => {
+      syncDropdownPlacement()
+    })
+
+    if (inputWrapRef.value) {
+      resizeObserver.observe(inputWrapRef.value)
+    }
+  }
 
   onBeforeUnmount(() => {
-    window.removeEventListener('resize', syncPosition)
-    window.removeEventListener('scroll', syncPosition, true)
+    window.removeEventListener('resize', syncDropdownPlacement)
+    window.removeEventListener('scroll', syncDropdownPlacement, true)
+    resizeObserver?.disconnect()
   })
 })
 </script>
 
 <template>
   <div ref="rootRef" class="relative w-full min-w-45">
-    <div class="relative flex items-center">
+    <div ref="inputWrapRef" class="relative flex items-center">
       <input
         v-model="query"
         type="text"
         :disabled="disabled"
         placeholder="Ketik nama / kode produk..."
         autocomplete="off"
-        class="w-full rounded-lg border border-slate-300 py-1.5 pl-3 pr-8 text-sm outline-none ring-emerald-500 focus:ring disabled:bg-slate-50 disabled:text-slate-400"
+        :class="
+          open
+            ? 'border-emerald-400 bg-white shadow-[0_0_0_4px_rgba(16,185,129,0.12)]'
+            : 'border-slate-300 bg-white'
+        "
+        class="w-full rounded-xl py-2 pl-3 pr-8 text-sm text-slate-700 outline-none transition ring-emerald-500 placeholder:text-slate-400 focus:ring disabled:bg-slate-50 disabled:text-slate-400"
         @input="onInput"
         @focus="onFocus"
         @blur="onBlur"
@@ -193,21 +236,38 @@ onMounted(() => {
       <ul
         v-if="open && results.length > 0"
         :style="dropdownStyle"
-        class="z-50 max-h-64 overflow-y-auto overscroll-contain rounded-lg border border-slate-200 bg-white shadow-xl"
+        class="z-100 overflow-y-auto overscroll-contain rounded-2xl border border-slate-200/80 bg-white/95 p-1.5 shadow-2xl shadow-slate-900/10 ring-1 ring-slate-950/5 backdrop-blur-sm"
         @wheel.stop
       >
         <li
           v-for="product in results"
           :key="product.product_id"
-          class="cursor-pointer border-b border-slate-100 px-3 py-2 last:border-0 hover:bg-emerald-50"
+          class="group cursor-pointer rounded-xl px-3 py-2.5 transition last:border-0 hover:bg-emerald-50/80"
           @mousedown.prevent="select(product)"
         >
-          <p class="truncate font-medium text-slate-800">{{ productLabel(product) }}</p>
-          <div class="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
-            <span v-if="product.list_price">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0 flex-1">
+              <p
+                class="truncate font-medium text-slate-800 transition group-hover:text-emerald-700"
+              >
+                {{ productLabel(product) }}
+              </p>
+              <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                <span
+                  v-if="product.default_code"
+                  class="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-600"
+                >
+                  {{ product.default_code }}
+                </span>
+                <span v-if="product.uom_name" class="text-slate-400">{{ product.uom_name }}</span>
+              </div>
+            </div>
+            <span
+              v-if="product.list_price"
+              class="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700"
+            >
               {{ product.currency_name ?? 'IDR' }} {{ formatCurrency(product.list_price) }}
             </span>
-            <span v-if="product.uom_name" class="text-slate-400">/ {{ product.uom_name }}</span>
           </div>
         </li>
       </ul>

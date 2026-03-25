@@ -258,7 +258,7 @@ onMounted(async () => {
     <QrScanner @detected="handleDetectedQr" />
 
     <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-      <div class="grid gap-4 md:grid-cols-3">
+      <div class="relative z-0 grid gap-4 md:grid-cols-3">
         <label class="space-y-1 md:col-span-2">
           <span class="text-sm font-medium text-slate-700">Customer QR (scan/manual)</span>
           <input
@@ -346,7 +346,7 @@ onMounted(async () => {
         </label>
       </div>
 
-      <div class="overflow-x-auto">
+      <div class="relative z-10 overflow-x-auto overflow-y-visible">
         <table class="min-w-full text-left text-sm text-slate-700">
           <thead class="bg-slate-100 text-xs uppercase tracking-wide text-slate-600">
             <tr>
@@ -363,7 +363,7 @@ onMounted(async () => {
               :key="line.rowId"
               class="border-b border-slate-100 align-top"
             >
-              <td class="px-3 py-2">
+              <td class="relative overflow-visible px-3 py-2">
                 <ProductSearchInput
                   v-model="line.product_id"
                   :disabled="loadingMaster"
