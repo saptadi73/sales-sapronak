@@ -2,6 +2,7 @@ import type {
   ApiResponse,
   CustomerAccountingSummaryData,
   CustomerDetailData,
+  DraftOrderBonType,
   CustomerQrPayloadData,
   DraftOrderPayload,
   DraftOrderResult,
@@ -400,6 +401,14 @@ export function getOrdersByQr(
 
 export function createDraftOrder(baseUrl: string, payload: DraftOrderPayload) {
   return postJsonRpc<DraftOrderResult>(baseUrl, '/api/sales/draft-order', payload)
+}
+
+export function createDraftOrderByBonType(
+  baseUrl: string,
+  bonType: DraftOrderBonType,
+  payload: DraftOrderPayload,
+) {
+  return postJsonRpc<DraftOrderResult>(baseUrl, `/api/sales/draft-order/${bonType}`, payload)
 }
 
 export async function debugAuthenticateCors(

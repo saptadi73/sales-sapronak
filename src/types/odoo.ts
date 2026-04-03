@@ -102,6 +102,8 @@ export interface DraftOrderLineInput {
   name?: string
 }
 
+export type DraftOrderBonType = 'bon-kering' | 'bon-partus' | 'bon-reguler'
+
 export interface DraftOrderPayload {
   partner_id?: number
   customer_qr_ref?: string

@@ -4,16 +4,15 @@ import { useRoute } from 'vue-router'
 import ProductSearchInput from '@/components/ProductSearchInput.vue'
 import QrScanner from '@/components/QrScanner.vue'
 import {
-  createDraftOrder,
+  createDraftOrderByBonType,
   getCustomerDetailByQr,
-  getOrderTypes,
   getPaymentTerms,
 } from '@/services/odooApi'
 import { useSessionStore } from '@/stores/session'
 import type {
+  DraftOrderBonType,
   CustomerDetailData,
   DraftOrderResult,
-  OrderTypeItem,
   PaymentTermItem,
   ProductItem,
 } from '@/types/odoo'
@@ -38,18 +37,18 @@ const successMessage = ref('')
 const customerQrInput = ref('')
 const customer = ref<CustomerDetailData | null>(null)
 const createdOrder = ref<DraftOrderResult | null>(null)
+const selectedBonType = ref<DraftOrderBonType | ''>('')
 
 const paymentTerms = ref<PaymentTermItem[]>([])
-const orderTypes = ref<OrderTypeItem[]>([])
-const defaultOrderTypes: OrderTypeItem[] = [
-  { value: 'kering', label: 'Kering' },
-  { value: 'basah', label: 'Basah' },
+const bonTypeOptions: Array<{ value: DraftOrderBonType; label: string }> = [
+  { value: 'bon-kering', label: 'Bon Kering' },
+  { value: 'bon-partus', label: 'Bon Partus' },
+  { value: 'bon-reguler', label: 'Bon Reguler' },
 ]
 
 const form = reactive({
   commitment_date: '',
   payment_term_id: null as number | null,
-  sale_order_type: '' as string,
   lines: [
     {
       rowId: 1,
@@ -128,38 +127,12 @@ async function loadMaster() {
   errorMessage.value = ''
 
   try {
-    const [paymentTermResult, orderTypeResult] = await Promise.allSettled([
-      getPaymentTerms(sessionStore.baseUrl),
-      getOrderTypes(sessionStore.baseUrl),
-    ])
+    const paymentTermResult = await getPaymentTerms(sessionStore.baseUrl)
 
-    const errors: string[] = []
-
-    if (paymentTermResult.status === 'fulfilled') {
-      paymentTerms.value = paymentTermResult.value.data.items
-    } else {
-      paymentTerms.value = []
-      errors.push('term of payment')
-    }
-
-    if (orderTypeResult.status === 'fulfilled') {
-      orderTypes.value =
-        orderTypeResult.value.data.items.length > 0
-          ? orderTypeResult.value.data.items
-          : defaultOrderTypes
-    } else {
-      orderTypes.value = defaultOrderTypes
-      errors.push('type sales order')
-    }
-
-    const firstOrderType = orderTypes.value[0]
-    if (firstOrderType && !form.sale_order_type) {
-      form.sale_order_type = firstOrderType.value
-    }
-
-    if (errors.length > 0) {
-      errorMessage.value = `Sebagian master data belum berhasil dimuat dari API: ${errors.join(', ')}.`
-    }
+    paymentTerms.value = paymentTermResult.data.items
+  } catch {
+    paymentTerms.value = []
+    errorMessage.value = 'Master data term of payment belum berhasil dimuat dari API.'
   } finally {
     loadingMaster.value = false
   }
@@ -178,8 +151,8 @@ function validateForm() {
     return 'Term of Payment wajib dipilih.'
   }
 
-  if (!form.sale_order_type) {
-    return 'Type Sales Order wajib dipilih.'
+  if (!selectedBonType.value) {
+    return 'Jenis bon wajib dipilih.'
   }
 
   const validLines = form.lines.filter((line) => line.product_id && line.product_uom_qty > 0)
@@ -204,6 +177,11 @@ async function submitDraftOrder() {
   loadingSubmit.value = true
 
   try {
+    const bonType = selectedBonType.value
+    if (!bonType) {
+      throw new Error('Jenis bon belum dipilih.')
+    }
+
     const payloadLines = form.lines
       .filter((line) => line.product_id && line.product_uom_qty > 0)
       .map((line) => ({
@@ -212,12 +190,11 @@ async function submitDraftOrder() {
         price_unit: Number(line.price_unit),
       }))
 
-    const response = await createDraftOrder(sessionStore.baseUrl, {
+    const response = await createDraftOrderByBonType(sessionStore.baseUrl, bonType, {
       partner_id: customer.value?.partner_id,
       customer_qr_ref: customer.value?.customer_qr_ref,
       commitment_date: toOdooDateTime(form.commitment_date),
       payment_term_id: form.payment_term_id ?? undefined,
-      sale_order_type: form.sale_order_type,
       order_line: payloadLines,
     })
 
@@ -245,8 +222,8 @@ onMounted(async () => {
     <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
       <h1 class="text-xl font-bold text-slate-900">Create Draft Sales Order</h1>
       <p class="mt-1 text-sm text-slate-600">
-        Scan QR customer untuk autofill customer, lalu isi tanggal pengiriman, payment term, type
-        order, dan item produk.
+        Scan QR customer untuk autofill customer, lalu isi tanggal pengiriman, payment term,
+        pilih jenis bon, dan item produk.
       </p>
       <p v-if="loadingMaster" class="mt-2 text-sm text-slate-500">Memuat master data...</p>
       <div v-if="loadingMaster" class="mt-3 space-y-2">
@@ -331,19 +308,37 @@ onMounted(async () => {
           </select>
         </label>
 
-        <label class="space-y-1">
-          <span class="text-sm font-medium text-slate-700">Type Sales Order</span>
+        <div class="space-y-1 md:col-span-3">
+          <span class="text-sm font-medium text-slate-700">Jenis Bon</span>
           <select
-            v-model="form.sale_order_type"
+            v-model="selectedBonType"
             :disabled="loadingMaster"
-            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-emerald-500 focus:ring"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-emerald-500 focus:ring sm:hidden"
           >
-            <option value="">Pilih Type</option>
-            <option v-for="type in orderTypes" :key="type.value" :value="type.value">
-              {{ type.label }}
+            <option value="">Pilih Jenis Bon</option>
+            <option v-for="option in bonTypeOptions" :key="option.value" :value="option.value">
+              {{ option.label }}
             </option>
           </select>
-        </label>
+
+          <div class="hidden gap-2 sm:grid sm:grid-cols-3">
+            <button
+              v-for="option in bonTypeOptions"
+              :key="option.value"
+              type="button"
+              :disabled="loadingMaster"
+              class="rounded-lg border px-3 py-2 text-sm font-semibold transition"
+              :class="
+                selectedBonType === option.value
+                  ? 'border-emerald-700 bg-emerald-600 text-white'
+                  : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+              "
+              @click="selectedBonType = option.value"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+        </div>
       </div>
 
       <div class="relative z-10 overflow-x-auto overflow-y-visible">

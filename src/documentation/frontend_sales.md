@@ -9,6 +9,7 @@ Fokus dokumen ini:
 - endpoint master data sales
 - endpoint customer QR
 - create draft Sales Order multi-item
+- create draft Sales Order per jenis bon
 - informasi accounting customer
 - histori Sales Order customer
 
@@ -18,14 +19,18 @@ Fokus dokumen ini:
 |---|---|---|---|
 | `/api/sales/authenticate` | `POST` | public | login dan membuat session Odoo |
 | `/api/sales/products` | `POST` | user | list product dan price |
-| `/api/sales/payment-terms` | `POST` | user | list Term of Payment |
+| `/api/sales/payment-terms` | `POST` | user | list Payment Terms |
 | `/api/sales/order-types` | `GET` | user | list type Sales Order |
 | `/api/sales/customer-qr-by-id` | `POST` | user | ambil `customer_qr_ref` dari `customer_id` |
 | `/api/sales/customer-qr-payload-by-id` | `POST` | user | ambil payload QR siap render dari `customer_id` |
+| `/api/sales/customer-qr-payload-by-ref` | `POST` | user | ambil payload QR siap render dari `customer_qr_ref` |
 | `/api/sales/customer-detail-by-qr` | `POST` | user | detail customer langsung dari `customer_qr_ref` |
 | `/api/sales/customer-accounting-summary-by-qr` | `POST` | user | summary aging hutang/piutang dari `customer_qr_ref` |
 | `/api/sales/orders-by-qr` | `POST` | user | histori Sales Order customer dari `customer_qr_ref` |
 | `/api/sales/draft-order` | `POST` | user | create draft Sales Order multi-item |
+| `/api/sales/draft-order/bon-kering` | `POST` | user | create draft Sales Order bon kering |
+| `/api/sales/draft-order/bon-partus` | `POST` | user | create draft Sales Order bon partus |
+| `/api/sales/draft-order/bon-reguler` | `POST` | user | create draft Sales Order bon reguler |
 
 ## Base URL
 
@@ -140,7 +145,8 @@ Catatan implementasi:
 - referensi ini unik di database
 - jika frontend sudah menyimpan `customer_qr_ref`, frontend tidak perlu lagi menampilkan atau mengirim `customer_id` untuk flow lookup customer
 - flow yang sudah bisa langsung memakai `customer_qr_ref` adalah detail customer, summary accounting customer, dan histori order customer
-- endpoint yang masih membutuhkan `customer_id` hanya endpoint pembangkit QR awal: `customer-qr-by-id` dan `customer-qr-payload-by-id`
+- endpoint yang masih membutuhkan `customer_id` hanya endpoint pembangkit QR awal berbasis id: `customer-qr-by-id` dan `customer-qr-payload-by-id`
+- frontend juga bisa membentuk ulang payload QR langsung dari reference melalui `customer-qr-payload-by-ref`
 
 ## Endpoint Master Data
 
@@ -185,7 +191,7 @@ Mengambil list produk untuk kebutuhan form Sales Order.
 
 ### `POST /api/sales/payment-terms`
 
-Mengambil daftar Term of Payment.
+Mengambil daftar Payment Terms.
 
 #### Response
 
@@ -207,30 +213,6 @@ Mengambil daftar Term of Payment.
 }
 ```
 
-### `GET /api/sales/order-types`
-
-Mengambil daftar type Sales Order dari backend.
-
-#### Response
-
-```json
-{
-  "status": "success",
-  "data": {
-    "items": [
-      {
-        "value": "kering",
-        "label": "Kering"
-      },
-      {
-        "value": "basah",
-        "label": "Basah"
-      }
-    ]
-  }
-}
-```
-
 ## Panduan Frontend Jika Memakai `customer_qr_ref`
 
 Jika sisi frontend sudah menyimpan `customer_qr_ref`, maka frontend bisa memakai reference tersebut sebagai identifier customer untuk flow setelah QR terbentuk atau setelah customer pernah dipilih sebelumnya.
@@ -240,6 +222,7 @@ Frontend bisa langsung memakai `customer_qr_ref` untuk endpoint berikut:
 - `POST /api/sales/customer-detail-by-qr`
 - `POST /api/sales/customer-accounting-summary-by-qr`
 - `POST /api/sales/orders-by-qr`
+- `POST /api/sales/customer-qr-payload-by-ref`
 
 Contoh request umum:
 
@@ -254,8 +237,8 @@ Contoh request umum:
 Catatan integrasi:
 
 - jika frontend hanya perlu lookup ulang customer yang sudah punya QR reference, gunakan `customer_qr_ref`
-- jika frontend ingin membuat QR pertama kali dari customer yang dipilih dari master data, endpoint yang tersedia saat ini masih memakai `customer_id`
-- `customer_qr_ref` sudah cukup untuk flow scan, detail customer, summary accounting, dan histori order
+- jika frontend ingin membuat atau membentuk ulang payload QR, frontend bisa memakai `customer_id` atau `customer_qr_ref` sesuai data yang tersedia
+- `customer_qr_ref` sudah cukup untuk flow scan, detail customer, summary accounting, histori order, dan pembentukan ulang payload QR
 ## Endpoint Customer
 
 ### `POST /api/sales/customer-qr-by-id`
@@ -372,6 +355,72 @@ Catatan:
 - `format="json"` cocok jika frontend atau scanner ingin membaca metadata customer langsung dari isi QR
 - `qr_payload` tetap selalu dikembalikan sebagai object referensi
 
+
+### `POST /api/sales/customer-qr-payload-by-ref`
+
+Mengambil payload QR siap render dari `customer_qr_ref`.
+
+Endpoint ini cocok jika frontend sudah menyimpan reference customer dan ingin membentuk ulang payload QR tanpa membutuhkan `customer_id`.
+
+#### Request body
+
+```json
+{
+  "params": {
+    "customer_qr_ref": "CUSTQR2603-000001",
+    "format": "ref"
+  }
+}
+```
+
+#### Field request
+
+| Field | Type | Required | Keterangan |
+|---|---|---|---|
+| `customer_qr_ref` | string | ya | reference QR customer |
+| `format` | string | tidak | `ref` atau `json`; default `ref` |
+
+#### Response format `ref`
+
+```json
+{
+  "status": "success",
+  "data": {
+    "partner_id": 45,
+    "customer_id": 45,
+    "name": "PT Customer A",
+    "customer_qr_ref": "CUSTQR2603-000001",
+    "format": "ref",
+    "qr_content": "CUSTQR2603-000001",
+    "qr_payload": {
+      "customer_id": 45,
+      "customer_qr_ref": "CUSTQR2603-000001",
+      "customer_name": "PT Customer A"
+    }
+  }
+}
+```
+
+#### Response format `json`
+
+```json
+{
+  "status": "success",
+  "data": {
+    "partner_id": 45,
+    "customer_id": 45,
+    "name": "PT Customer A",
+    "customer_qr_ref": "CUSTQR2603-000001",
+    "format": "json",
+    "qr_content": "{\"customer_id\":45,\"customer_qr_ref\":\"CUSTQR2603-000001\",\"customer_name\":\"PT Customer A\"}",
+    "qr_payload": {
+      "customer_id": 45,
+      "customer_qr_ref": "CUSTQR2603-000001",
+      "customer_name": "PT Customer A"
+    }
+  }
+}
+```
 ### `POST /api/sales/customer-detail-by-qr`
 
 Mengambil detail customer berdasarkan `customer_qr_ref`.
@@ -434,14 +483,16 @@ Mengambil nilai dan aging hutang/piutang customer berdasarkan `customer_qr_ref`.
     "currency": "IDR",
     "aging_receivable": {
       "current": 5000000.0,
-      "1_30": 4000000.0,
+      "1_10": 2000000.0,
+      "11_30": 2000000.0,
       "31_60": 3000000.0,
       "61_90": 2000000.0,
       "over_90": 1000000.0
     },
     "aging_payable": {
       "current": 0.0,
-      "1_30": 0.0,
+      "1_10": 0.0,
+      "11_30": 0.0,
       "31_60": 0.0,
       "61_90": 0.0,
       "over_90": 0.0
@@ -449,6 +500,58 @@ Mengambil nilai dan aging hutang/piutang customer berdasarkan `customer_qr_ref`.
   }
 }
 ```
+
+### `GET /api/sales/order-types`
+
+Mengambil daftar type Sales Order dari backend.
+
+#### Response
+
+```json
+{
+  "status": "success",
+  "data": {
+    "items": [
+      {
+        "value": "kering",
+        "label": "Kering"
+      },
+      {
+        "value": "basah",
+        "label": "Basah"
+      }
+    ]
+  }
+}
+```
+
+## Konfigurasi Rule Ongkir Frontend
+
+Sebelum frontend membuat Sales Order yang memakai auto biaya pengiriman, backend harus menyiapkan rule ongkir terlebih dahulu.
+
+Setup dilakukan di menu:
+
+- `Sales > Frontend Shipping Rules`
+
+Setiap rule minimal berisi:
+
+- `Team Sales`
+- `Wilayah` pada level `wilayah.kecamatan`
+- `Shipping Product`
+
+Perilaku backend:
+
+- backend hanya menambahkan ongkir otomatis untuk Sales Order yang dibuat dari endpoint frontend
+- backend mencari rule berdasarkan kombinasi `team_id + wilayah_id + company`
+- jika rule ditemukan, backend menambahkan 1 line produk ongkir otomatis
+- harga ongkir mengikuti pricelist Sales Order atau `list_price` produk ongkir
+- jika rule tidak ditemukan, pembuatan Sales Order akan ditolak
+
+Catatan untuk tim frontend:
+
+- `wilayah_id` bukan diambil dari alamat customer
+- `wilayah_id` merepresentasikan wilayah ketua kelompok petani/customer yang sedang membuat transaksi dari frontend
+- frontend harus mengirim `wilayah_id` secara eksplisit pada semua endpoint create order
 
 ### `POST /api/sales/orders-by-qr`
 
@@ -495,6 +598,8 @@ Mengambil list Sales Order berdasarkan `customer_qr_ref`.
 
 Membuat draft Sales Order dari frontend dan mendukung multi-item.
 
+Endpoint ini tidak mengisi default Terms and Conditions. Di backend, Terms and Conditions disimpan pada field `note` di `sale.order`. Jika frontend membutuhkan Terms and Conditions default berdasarkan jenis bon, gunakan salah satu endpoint khusus jenis bon di bagian berikutnya.
+
 #### Request body
 
 Minimal kirim `partner_id` atau `customer_qr_ref`.
@@ -509,6 +614,7 @@ Minimal kirim `partner_id` atau `customer_qr_ref`.
     "payment_term_id": 4,
     "team_id": 3,
     "business_category_id": 2,
+    "wilayah_id": 15,
     "note": "Kirim pagi",
     "order_line": [
       {
@@ -549,8 +655,12 @@ Minimal kirim `partner_id` atau `customer_qr_ref`.
     "sale_order_id": 120,
     "name": "S000120",
     "state": "draft",
-    "amount_total": 570000.0,
-    "line_count": 3
+    "amount_total": 620000.0,
+    "line_count": 4,
+    "terms_and_conditions": "Kirim pagi",
+    "is_frontend_order": true,
+    "wilayah_id": 15,
+    "wilayah_name": "Kecamatan A"
   }
 }
 ```
@@ -559,10 +669,77 @@ Minimal kirim `partner_id` atau `customer_qr_ref`.
 
 - `partner_id` atau `customer_qr_ref` wajib ada
 - jika keduanya dikirim, nilainya harus saling cocok
-- `sale_order_type` hanya boleh `kering` atau `basah`
+- `sale_order_type` bila dikirim hanya boleh `kering` atau `basah`
 - `payment_term_id` harus valid
+- `wilayah_id` wajib ada dan harus valid pada master `wilayah.kecamatan`
 - `order_line` wajib minimal 1 item
 - setiap line wajib punya `product_id` dan `product_uom_qty > 0`
+- backend otomatis menambahkan line biaya pengiriman untuk order frontend berdasarkan rule `team_id + wilayah_id`
+- jika rule ongkir frontend tidak ditemukan, pembuatan order akan ditolak
+
+### Endpoint Draft Order Berdasarkan Jenis Bon
+
+Tiga endpoint berikut memakai proses backend yang sama. Perbedaannya hanya pada isi default Terms and Conditions. Di backend, nilai ini ditulis ke field `note` pada `sale.order`.
+
+| Endpoint | Isi default Terms and Conditions |
+|---|---|
+| `/api/sales/draft-order/bon-kering` | `sale order ini jenis bon kering` |
+| `/api/sales/draft-order/bon-partus` | `sale order ini jenis bon partus` |
+| `/api/sales/draft-order/bon-reguler` | `sale order ini jenis reguler` |
+
+Jika frontend tetap mengirim `note`, backend akan menaruh teks default jenis bon di bagian atas lalu menambahkan isi `note` dari frontend di bawahnya. Response API mengembalikan hasil akhirnya pada field `terms_and_conditions`.
+
+Panduan pemakaian:
+
+- gunakan `/api/sales/draft-order/bon-kering` untuk Sales Order bon kering
+- gunakan `/api/sales/draft-order/bon-partus` untuk Sales Order bon partus
+- gunakan `/api/sales/draft-order/bon-reguler` untuk Sales Order reguler
+- gunakan `/api/sales/draft-order` hanya jika frontend ingin mengirim Terms and Conditions sendiri tanpa default jenis bon
+
+#### Contoh request
+
+```json
+{
+  "params": {
+    "partner_id": 45,
+    "customer_qr_ref": "CUSTQR2603-000001",
+    "commitment_date": "2026-03-15 10:00:00",
+    "sale_order_type": "kering",
+    "payment_term_id": 4,
+    "team_id": 3,
+    "business_category_id": 2,
+    "wilayah_id": 15,
+    "note": "Kirim pagi",
+    "order_line": [
+      {
+        "product_id": 1001,
+        "product_uom_qty": 25,
+        "price_unit": 12000
+      }
+    ]
+  }
+}
+```
+
+#### Contoh response `POST /api/sales/draft-order/bon-kering`
+
+```json
+{
+  "status": "success",
+  "message": "Draft sales order created",
+  "data": {
+    "sale_order_id": 120,
+    "name": "S000120",
+    "state": "draft",
+    "amount_total": 350000.0,
+    "line_count": 2,
+    "terms_and_conditions": "sale order ini jenis bon kering\n\nKirim pagi",
+    "is_frontend_order": true,
+    "wilayah_id": 15,
+    "wilayah_name": "Kecamatan A"
+  }
+}
+```
 
 ## Urutan Integrasi Frontend
 
@@ -570,14 +747,20 @@ Urutan implementasi yang disarankan di Vue:
 
 1. login ke `/api/sales/authenticate`
 2. ambil master data: `products`, `payment-terms`, `order-types`
-3. jika customer dipilih dari list dan frontend mau membuat QR, panggil `customer-qr-payload-by-id`
-4. pilih `format="ref"` jika QR hanya menyimpan reference string
-5. pilih `format="json"` jika QR ingin menyimpan metadata customer di dalam kontennya
-6. jika QR discan dan backend lookup memakai ref, panggil `customer-detail-by-qr`
-7. panggil `customer-accounting-summary-by-qr`
-8. panggil `orders-by-qr`
-9. user pilih banyak item
-10. submit ke `draft-order`
+3. jika frontend punya `customer_id`, panggil `customer-qr-payload-by-id` untuk membentuk payload QR
+4. jika frontend sudah punya `customer_qr_ref`, panggil `customer-qr-payload-by-ref`
+5. pilih `format="ref"` jika QR hanya menyimpan reference string
+6. pilih `format="json"` jika QR ingin menyimpan metadata customer di dalam kontennya
+7. jika QR discan dan backend lookup memakai ref, panggil `customer-detail-by-qr`
+8. panggil `customer-accounting-summary-by-qr`
+9. panggil `orders-by-qr`
+10. user pilih banyak item
+11. pilih endpoint create order yang sesuai dengan jenis transaksi
+12. gunakan `/api/sales/draft-order/bon-kering` untuk bon kering
+13. gunakan `/api/sales/draft-order/bon-partus` untuk bon partus
+14. gunakan `/api/sales/draft-order/bon-reguler` untuk reguler
+15. kirim `wilayah_id` untuk menentukan rule ongkir frontend
+16. gunakan `/api/sales/draft-order` jika frontend ingin mengirim Terms and Conditions sendiri tanpa default jenis bon
 
 ## Contoh Alur Request Lengkap
 
@@ -603,6 +786,11 @@ await postJsonRpc(`${baseUrl}/api/sales/customer-qr-payload-by-id`, {
   format: "ref",
 });
 
+
+await postJsonRpc(`${baseUrl}/api/sales/customer-qr-payload-by-ref`, {
+  customer_qr_ref,
+  format: "ref",
+});
 await postJsonRpc(`${baseUrl}/api/sales/customer-detail-by-qr`, {
   customer_qr_ref,
 });
@@ -617,7 +805,7 @@ await postJsonRpc(`${baseUrl}/api/sales/orders-by-qr`, {
   offset: 0,
 });
 
-await postJsonRpc(`${baseUrl}/api/sales/draft-order`, payload);
+await postJsonRpc(`${baseUrl}/api/sales/draft-order/bon-kering`, payload);
 ```
 
 ## Standard Response
@@ -678,10 +866,19 @@ export async function getJsonSession(url) {
 - untuk list product dan order history, siapkan pagination
 - form order sebaiknya memakai dynamic rows agar multi-item nyaman dipakai
 - tampilkan warning jika `receivable_total` atau aging customer tinggi
+- pilih endpoint draft order sesuai jenis transaksi yang dipilih user di frontend
+- `wilayah_id` wajib dikirim untuk semua endpoint create draft order frontend
+- backend akan lookup rule ongkir frontend berdasarkan kombinasi `team_id` dan `wilayah_id`
+- jika rule cocok, backend otomatis menambah 1 line produk ongkir dengan harga mengikuti pricelist atau `list_price` produk ongkir
+- Terms and Conditions di backend disimpan pada field `note` di `sale.order`
 - `customer-qr-by-id` cocok jika frontend hanya perlu string referensi QR
-- `customer-qr-payload-by-id` cocok jika frontend ingin langsung render QR dan menyimpan metadata QR sekaligus
+- `customer-qr-payload-by-id` cocok jika frontend ingin langsung render QR dan menyimpan metadata QR sekaligus dari `customer_id`
+- `customer-qr-payload-by-ref` cocok jika frontend sudah menyimpan `customer_qr_ref` dan ingin membentuk ulang payload QR
 - gunakan `format="ref"` jika flow scan tetap lookup ke backend dengan `customer_qr_ref`
 - gunakan `format="json"` jika scanner/frontend perlu membaca detail dasar customer langsung dari isi QR
+- endpoint `draft-order` tidak memberi Terms and Conditions default
+- endpoint `draft-order/bon-kering`, `draft-order/bon-partus`, dan `draft-order/bon-reguler` akan mengisi Terms and Conditions default sesuai jenis bon
+- jika frontend mengirim `note` ke endpoint jenis bon, backend akan menggabungkannya setelah teks default jenis bon
 
 ## Status Implementasi Saat Ini
 
@@ -693,12 +890,15 @@ Sudah tersedia:
 - `GET /api/sales/order-types`
 - `POST /api/sales/customer-qr-by-id`
 - `POST /api/sales/customer-qr-payload-by-id`
+- `POST /api/sales/customer-qr-payload-by-ref`
 - `POST /api/sales/customer-detail-by-qr`
 - `POST /api/sales/customer-accounting-summary-by-qr`
 - `POST /api/sales/orders-by-qr`
 - `POST /api/sales/draft-order`
+- `POST /api/sales/draft-order/bon-kering`
+- `POST /api/sales/draft-order/bon-partus`
+- `POST /api/sales/draft-order/bon-reguler`
 - field `customer_qr_ref` di `res.partner`
-- field `sale_order_type` di `sale.order`
 - auto-generate `customer_qr_ref` untuk customer baru
 - backfill `customer_qr_ref` untuk data existing saat install atau upgrade module
 
