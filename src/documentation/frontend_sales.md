@@ -20,7 +20,6 @@ Fokus dokumen ini:
 | `/api/sales/authenticate` | `POST` | public | login dan membuat session Odoo |
 | `/api/sales/products` | `POST` | user | list product dan price |
 | `/api/sales/payment-terms` | `POST` | user | list Payment Terms |
-| `/api/sales/order-types` | `GET` | user | list type Sales Order |
 | `/api/sales/customer-qr-by-id` | `POST` | user | ambil `customer_qr_ref` dari `customer_id` |
 | `/api/sales/customer-qr-payload-by-id` | `POST` | user | ambil payload QR siap render dari `customer_id` |
 | `/api/sales/customer-qr-payload-by-ref` | `POST` | user | ambil payload QR siap render dari `customer_qr_ref` |
@@ -450,6 +449,8 @@ Mengambil detail customer berdasarkan `customer_qr_ref`.
     "phone": "08123456789",
     "mobile": "08123456789",
     "email": "customer@example.com",
+    "shipping_wilayah_id": 15,
+    "shipping_wilayah_name": "Kecamatan A",
     "payment_term_id": 2,
     "payment_term_name": "30 Days"
   }
@@ -501,30 +502,6 @@ Mengambil nilai dan aging hutang/piutang customer berdasarkan `customer_qr_ref`.
 }
 ```
 
-### `GET /api/sales/order-types`
-
-Mengambil daftar type Sales Order dari backend.
-
-#### Response
-
-```json
-{
-  "status": "success",
-  "data": {
-    "items": [
-      {
-        "value": "kering",
-        "label": "Kering"
-      },
-      {
-        "value": "basah",
-        "label": "Basah"
-      }
-    ]
-  }
-}
-```
-
 ## Konfigurasi Rule Ongkir Frontend
 
 Sebelum frontend membuat Sales Order yang memakai auto biaya pengiriman, backend harus menyiapkan rule ongkir terlebih dahulu.
@@ -535,23 +512,42 @@ Setup dilakukan di menu:
 
 Setiap rule minimal berisi:
 
-- `Team Sales`
 - `Wilayah` pada level `wilayah.kecamatan`
-- `Shipping Product`
+- `Produk Ongkir Wilayah`
+- `Tarif per Kg`
 
 Perilaku backend:
 
 - backend hanya menambahkan ongkir otomatis untuk Sales Order yang dibuat dari endpoint frontend
-- backend mencari rule berdasarkan kombinasi `team_id + wilayah_id + company`
+- backend mengambil `Wilayah Ongkir` dari customer
+- backend mencari rule berdasarkan kombinasi `wilayah_id + company`
 - jika rule ditemukan, backend menambahkan 1 line produk ongkir otomatis
-- harga ongkir mengikuti pricelist Sales Order atau `list_price` produk ongkir
+- backend menghitung total berat dari semua line produk: `qty x berat produk`
+- nominal ongkir dihitung dengan rumus `total_kg x tarif_per_kg`
+- line ongkir otomatis menyimpan ringkasan berat total dan tarif per kg pada deskripsi line
 - jika rule tidak ditemukan, pembuatan Sales Order akan ditolak
+- jika total berat produk `0`, pembuatan Sales Order akan ditolak
 
 Catatan untuk tim frontend:
 
-- `wilayah_id` bukan diambil dari alamat customer
-- `wilayah_id` merepresentasikan wilayah ketua kelompok petani/customer yang sedang membuat transaksi dari frontend
-- frontend harus mengirim `wilayah_id` secara eksplisit pada semua endpoint create order
+- frontend tidak perlu mengirim `wilayah_id`
+- backend membaca wilayah ongkir langsung dari customer
+- customer harus sudah dilengkapi field `Wilayah Ongkir`
+
+## Monitoring Admin Sales
+
+Pada halaman list view Sales Order, admin sales sekarang dapat memakai informasi customer berikut untuk validasi prioritas:
+
+- `Wilayah Customer`
+- `Referensi Customer`
+
+Kegunaan operasional:
+
+- gunakan `Group By Wilayah Customer` untuk melihat konsentrasi order per wilayah
+- gunakan kolom `Referensi Customer` untuk sorting manual
+- referensi customer di atas `4000` dipakai sebagai penanda pelanggan mitra, bukan perorangan
+
+Field ini ditarik langsung dari data customer pada Sales Order, sehingga admin sales tidak perlu membuka form customer satu per satu saat melakukan validasi prioritas.
 
 ### `POST /api/sales/orders-by-qr`
 
@@ -583,8 +579,7 @@ Mengambil list Sales Order berdasarkan `customer_qr_ref`.
         "commitment_date": "2026-03-15 10:00:00",
         "amount_total": 3000000.0,
         "state": "sale",
-        "approval_state": "approved",
-        "sale_order_type": "kering"
+        "approval_state": "approved"
       }
     ],
     "count": 1
@@ -610,11 +605,9 @@ Minimal kirim `partner_id` atau `customer_qr_ref`.
     "partner_id": 45,
     "customer_qr_ref": "CUSTQR2603-000001",
     "commitment_date": "2026-03-15 10:00:00",
-    "sale_order_type": "kering",
     "payment_term_id": 4,
     "team_id": 3,
     "business_category_id": 2,
-    "wilayah_id": 15,
     "note": "Kirim pagi",
     "order_line": [
       {
@@ -660,7 +653,10 @@ Minimal kirim `partner_id` atau `customer_qr_ref`.
     "terms_and_conditions": "Kirim pagi",
     "is_frontend_order": true,
     "wilayah_id": 15,
-    "wilayah_name": "Kecamatan A"
+    "wilayah_name": "Kecamatan A",
+    "shipping_product_id": 2001,
+    "shipping_product_name": "Biaya Angkutan Kecamatan A",
+    "shipping_price_per_kg": 1500.0
   }
 }
 ```
@@ -669,12 +665,12 @@ Minimal kirim `partner_id` atau `customer_qr_ref`.
 
 - `partner_id` atau `customer_qr_ref` wajib ada
 - jika keduanya dikirim, nilainya harus saling cocok
-- `sale_order_type` bila dikirim hanya boleh `kering` atau `basah`
 - `payment_term_id` harus valid
-- `wilayah_id` wajib ada dan harus valid pada master `wilayah.kecamatan`
+- customer wajib punya `Wilayah Ongkir`
 - `order_line` wajib minimal 1 item
 - setiap line wajib punya `product_id` dan `product_uom_qty > 0`
-- backend otomatis menambahkan line biaya pengiriman untuk order frontend berdasarkan rule `team_id + wilayah_id`
+- backend otomatis menambahkan line biaya pengiriman untuk order frontend berdasarkan rule wilayah customer
+- backend menghitung nominal line ongkir dari `total berat produk x tarif per kg` pada rule
 - jika rule ongkir frontend tidak ditemukan, pembuatan order akan ditolak
 
 ### Endpoint Draft Order Berdasarkan Jenis Bon
@@ -704,11 +700,9 @@ Panduan pemakaian:
     "partner_id": 45,
     "customer_qr_ref": "CUSTQR2603-000001",
     "commitment_date": "2026-03-15 10:00:00",
-    "sale_order_type": "kering",
     "payment_term_id": 4,
     "team_id": 3,
     "business_category_id": 2,
-    "wilayah_id": 15,
     "note": "Kirim pagi",
     "order_line": [
       {
@@ -736,7 +730,10 @@ Panduan pemakaian:
     "terms_and_conditions": "sale order ini jenis bon kering\n\nKirim pagi",
     "is_frontend_order": true,
     "wilayah_id": 15,
-    "wilayah_name": "Kecamatan A"
+    "wilayah_name": "Kecamatan A",
+    "shipping_product_id": 2001,
+    "shipping_product_name": "Biaya Angkutan Kecamatan A",
+    "shipping_price_per_kg": 1500.0
   }
 }
 ```
@@ -746,7 +743,7 @@ Panduan pemakaian:
 Urutan implementasi yang disarankan di Vue:
 
 1. login ke `/api/sales/authenticate`
-2. ambil master data: `products`, `payment-terms`, `order-types`
+2. ambil master data: `products`, `payment-terms`
 3. jika frontend punya `customer_id`, panggil `customer-qr-payload-by-id` untuk membentuk payload QR
 4. jika frontend sudah punya `customer_qr_ref`, panggil `customer-qr-payload-by-ref`
 5. pilih `format="ref"` jika QR hanya menyimpan reference string
@@ -759,7 +756,7 @@ Urutan implementasi yang disarankan di Vue:
 12. gunakan `/api/sales/draft-order/bon-kering` untuk bon kering
 13. gunakan `/api/sales/draft-order/bon-partus` untuk bon partus
 14. gunakan `/api/sales/draft-order/bon-reguler` untuk reguler
-15. kirim `wilayah_id` untuk menentukan rule ongkir frontend
+15. pastikan customer yang dipilih sudah memiliki `Wilayah Ongkir`
 16. gunakan `/api/sales/draft-order` jika frontend ingin mengirim Terms and Conditions sendiri tanpa default jenis bon
 
 ## Contoh Alur Request Lengkap
@@ -778,8 +775,6 @@ await postJsonRpc(`${baseUrl}/api/sales/products`, {
 });
 
 await postJsonRpc(`${baseUrl}/api/sales/payment-terms`, {});
-
-await getJsonSession(`${baseUrl}/api/sales/order-types`);
 
 await postJsonRpc(`${baseUrl}/api/sales/customer-qr-payload-by-id`, {
   customer_id: 45,
@@ -867,9 +862,11 @@ export async function getJsonSession(url) {
 - form order sebaiknya memakai dynamic rows agar multi-item nyaman dipakai
 - tampilkan warning jika `receivable_total` atau aging customer tinggi
 - pilih endpoint draft order sesuai jenis transaksi yang dipilih user di frontend
-- `wilayah_id` wajib dikirim untuk semua endpoint create draft order frontend
-- backend akan lookup rule ongkir frontend berdasarkan kombinasi `team_id` dan `wilayah_id`
-- jika rule cocok, backend otomatis menambah 1 line produk ongkir dengan harga mengikuti pricelist atau `list_price` produk ongkir
+- frontend tidak perlu mengirim `wilayah_id` untuk create draft order
+- backend akan lookup rule ongkir frontend berdasarkan wilayah customer
+- backend menghitung total berat dari seluruh line produk non-ongkir menggunakan field `weight` pada produk
+- jika rule cocok, backend otomatis menambah 1 line produk ongkir dengan nominal `total_kg x tarif_per_kg`
+- semua produk yang dipakai untuk perhitungan ongkir berbasis kilogram harus memiliki field `weight` yang terisi benar
 - Terms and Conditions di backend disimpan pada field `note` di `sale.order`
 - `customer-qr-by-id` cocok jika frontend hanya perlu string referensi QR
 - `customer-qr-payload-by-id` cocok jika frontend ingin langsung render QR dan menyimpan metadata QR sekaligus dari `customer_id`
@@ -887,7 +884,6 @@ Sudah tersedia:
 - `POST /api/sales/authenticate`
 - `POST /api/sales/products`
 - `POST /api/sales/payment-terms`
-- `GET /api/sales/order-types`
 - `POST /api/sales/customer-qr-by-id`
 - `POST /api/sales/customer-qr-payload-by-id`
 - `POST /api/sales/customer-qr-payload-by-ref`

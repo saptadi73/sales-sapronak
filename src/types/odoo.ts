@@ -62,6 +62,8 @@ export interface CustomerDetailData {
   phone?: string | null
   mobile?: string | null
   email?: string | null
+  shipping_wilayah_id?: number | null
+  shipping_wilayah_name?: string | null
   payment_term_id?: number | null
   payment_term_name?: string | null
 }
@@ -119,4 +121,11 @@ export interface DraftOrderResult {
   state: string
   amount_total: number
   line_count: number
+  terms_and_conditions?: string
+  is_frontend_order?: boolean
+  wilayah_id?: number
+  wilayah_name?: string
+  shipping_product_id?: number
+  shipping_product_name?: string
+  shipping_price_per_kg?: number
 }

@@ -63,6 +63,8 @@ const grandTotal = computed(() =>
   form.lines.reduce((sum, item) => sum + item.product_uom_qty * item.price_unit, 0),
 )
 
+const customerHasShippingWilayah = computed(() => Boolean(customer.value?.shipping_wilayah_id))
+
 function lineSubtotal(line: OrderLineForm) {
   return line.product_uom_qty * line.price_unit
 }
@@ -141,6 +143,10 @@ async function loadMaster() {
 function validateForm() {
   if (!customer.value?.customer_qr_ref) {
     return 'Customer dari QR wajib dipilih.'
+  }
+
+  if (!customerHasShippingWilayah.value) {
+    return 'Customer belum memiliki Wilayah Ongkir. Lengkapi data wilayah customer terlebih dahulu.'
   }
 
   if (!form.commitment_date) {
@@ -222,8 +228,8 @@ onMounted(async () => {
     <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
       <h1 class="text-xl font-bold text-slate-900">Create Draft Sales Order</h1>
       <p class="mt-1 text-sm text-slate-600">
-        Scan QR customer untuk autofill customer, lalu isi tanggal pengiriman, payment term,
-        pilih jenis bon, dan item produk.
+        Scan QR customer untuk autofill data. Ongkos kirim/angkut ditentukan backend dari Wilayah
+        Ongkir customer, lalu isi tanggal pengiriman, payment term, jenis bon, dan item produk.
       </p>
       <p v-if="loadingMaster" class="mt-2 text-sm text-slate-500">Memuat master data...</p>
       <div v-if="loadingMaster" class="mt-3 space-y-2">
@@ -267,9 +273,28 @@ onMounted(async () => {
         <p><span class="font-medium">Nama:</span> {{ customer.name }}</p>
         <p><span class="font-medium">QR Ref:</span> {{ customer.customer_qr_ref }}</p>
         <p>
+          <span class="font-medium">Wilayah Ongkir:</span>
+          {{ customer.shipping_wilayah_name || '-' }}
+        </p>
+        <p>
           <span class="font-medium">Payment Term:</span> {{ customer.payment_term_name || '-' }}
         </p>
       </div>
+
+      <p
+        v-if="customer && !customerHasShippingWilayah"
+        class="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+      >
+        Data customer ini belum punya Wilayah Ongkir, sehingga draft order tidak bisa dibuat.
+      </p>
+
+      <p
+        v-if="customerHasShippingWilayah"
+        class="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800"
+      >
+        Ongkos kirim/angkut akan ditambahkan otomatis oleh backend berdasarkan Wilayah Ongkir
+        customer.
+      </p>
     </section>
 
     <section class="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
@@ -426,6 +451,13 @@ onMounted(async () => {
         <p>
           <span class="font-semibold">Amount Total:</span>
           {{ formatCurrency(createdOrder.amount_total) }}
+        </p>
+        <p v-if="createdOrder.wilayah_name">
+          <span class="font-semibold">Wilayah Customer:</span> {{ createdOrder.wilayah_name }}
+        </p>
+        <p v-if="createdOrder.shipping_product_name">
+          <span class="font-semibold">Produk Ongkir/Angkut:</span>
+          {{ createdOrder.shipping_product_name }}
         </p>
       </div>
 

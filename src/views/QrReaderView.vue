@@ -158,6 +158,10 @@ async function goToCreateOrder() {
         <div class="space-y-1 text-sm text-slate-700">
           <p><span class="font-medium">Nama:</span> {{ customer.name }}</p>
           <p><span class="font-medium">QR Ref:</span> {{ customer.customer_qr_ref }}</p>
+          <p>
+            <span class="font-medium">Wilayah Ongkir:</span>
+            {{ customer.shipping_wilayah_name || '-' }}
+          </p>
           <p><span class="font-medium">Kota:</span> {{ customer.city || '-' }}</p>
           <p>
             <span class="font-medium">Phone:</span> {{ customer.phone || customer.mobile || '-' }}
@@ -167,6 +171,14 @@ async function goToCreateOrder() {
             <span class="font-medium">Payment Term:</span> {{ customer.payment_term_name || '-' }}
           </p>
         </div>
+
+        <p
+          v-if="!customer.shipping_wilayah_id"
+          class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800"
+        >
+          Customer belum memiliki Wilayah Ongkir. Backend akan menolak pembuatan order sampai
+          wilayah dilengkapi.
+        </p>
 
         <button
           type="button"
