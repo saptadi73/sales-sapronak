@@ -60,6 +60,24 @@ function productLabel(p: ProductItem) {
   return `[${code}] ${nameWithoutRepeatedCode}`
 }
 
+function productNameOnly(p: ProductItem) {
+  const code = p.default_code?.trim()
+  const name = p.name?.trim() ?? ''
+
+  if (!code) {
+    return name
+  }
+
+  const escapedCode = code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const repeatedCodePrefixPattern = new RegExp(
+    `^(?:(?:\\[\\s*${escapedCode}\\s*\\]|${escapedCode})\\s*)+`,
+    'i',
+  )
+
+  const nameWithoutRepeatedCode = name.replace(repeatedCodePrefixPattern, '').trim()
+  return nameWithoutRepeatedCode || name
+}
+
 async function runSearch(q: string) {
   if (q.trim().length < 2) {
     results.value = []
@@ -247,20 +265,17 @@ onMounted(() => {
         >
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0 flex-1">
-              <p
-                class="truncate font-medium text-slate-800 transition group-hover:text-emerald-700"
-              >
-                {{ productLabel(product) }}
-              </p>
-              <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                <span
-                  v-if="product.default_code"
-                  class="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-600"
-                >
-                  {{ product.default_code }}
+              <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                <span class="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-600">
+                  {{ product.default_code || 'Tanpa Kode' }}
                 </span>
                 <span v-if="product.uom_name" class="text-slate-400">{{ product.uom_name }}</span>
               </div>
+              <p
+                class="mt-1 whitespace-normal wrap-break-word text-sm font-medium leading-5 text-slate-800 transition group-hover:text-emerald-700"
+              >
+                {{ productNameOnly(product) }}
+              </p>
             </div>
             <span
               v-if="product.list_price"

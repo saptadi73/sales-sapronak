@@ -502,6 +502,20 @@ Mengambil nilai dan aging hutang/piutang customer berdasarkan `customer_qr_ref`.
 }
 ```
 
+Keterangan bucket aging:
+
+- `current` = belum jatuh tempo
+- `1_10` = telat `1-10` hari
+- `11_30` = telat `11-30` hari
+- `31_60` = telat `31-60` hari
+- `61_90` = telat `61-90` hari
+- `over_90` = telat lebih dari `90` hari
+
+Catatan untuk frontend:
+
+- key JSON tetap memakai underscore agar stabil dan mudah diproses program
+- label tampilan di UI frontend sebaiknya ditampilkan sebagai `Current`, `1-10`, `11-30`, `31-60`, `61-90`, `>90`
+
 ## Konfigurasi Rule Ongkir Frontend
 
 Sebelum frontend membuat Sales Order yang memakai auto biaya pengiriman, backend harus menyiapkan rule ongkir terlebih dahulu.

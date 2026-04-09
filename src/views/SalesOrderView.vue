@@ -338,31 +338,13 @@ onMounted(async () => {
           <select
             v-model="selectedBonType"
             :disabled="loadingMaster"
-            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-emerald-500 focus:ring sm:hidden"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-emerald-500 focus:ring"
           >
             <option value="">Pilih Jenis Bon</option>
             <option v-for="option in bonTypeOptions" :key="option.value" :value="option.value">
               {{ option.label }}
             </option>
           </select>
-
-          <div class="hidden gap-2 sm:grid sm:grid-cols-3">
-            <button
-              v-for="option in bonTypeOptions"
-              :key="option.value"
-              type="button"
-              :disabled="loadingMaster"
-              class="rounded-lg border px-3 py-2 text-sm font-semibold transition"
-              :class="
-                selectedBonType === option.value
-                  ? 'border-emerald-700 bg-emerald-600 text-white'
-                  : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-              "
-              @click="selectedBonType = option.value"
-            >
-              {{ option.label }}
-            </button>
-          </div>
         </div>
       </div>
 

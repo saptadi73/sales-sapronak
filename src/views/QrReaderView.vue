@@ -9,6 +9,7 @@ import {
 } from '@/services/odooApi'
 import { useSessionStore } from '@/stores/session'
 import type {
+  AccountingAging,
   CustomerAccountingSummaryData,
   CustomerDetailData,
   SalesOrderHistoryItem,
@@ -26,6 +27,33 @@ const errorMessage = ref('')
 const customer = ref<CustomerDetailData | null>(null)
 const accounting = ref<CustomerAccountingSummaryData | null>(null)
 const orders = ref<SalesOrderHistoryItem[]>([])
+
+function resolveAgingAmount(aging: AccountingAging, keys: Array<keyof AccountingAging>) {
+  for (const key of keys) {
+    const value = aging[key]
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value
+    }
+  }
+
+  return 0
+}
+
+function agingRangeValue(aging: AccountingAging, range: '1-10' | '11-30' | '31-60' | '61-90') {
+  if (range === '1-10') {
+    return resolveAgingAmount(aging, ['1_10'])
+  }
+
+  if (range === '11-30') {
+    return resolveAgingAmount(aging, ['10_30', '11_30', '1_30'])
+  }
+
+  if (range === '31-60') {
+    return resolveAgingAmount(aging, ['30_60', '31_60'])
+  }
+
+  return resolveAgingAmount(aging, ['60_90', '61_90'])
+}
 
 async function loadByQrRef(qrRef: string) {
   if (!qrRef) {
@@ -215,15 +243,40 @@ async function goToCreateOrder() {
                 {{ formatCurrency(accounting.aging_receivable.current, accounting.currency) }}
               </li>
               <li>
-                1-30: {{ formatCurrency(accounting.aging_receivable['1_30'], accounting.currency) }}
+                1-10:
+                {{
+                  formatCurrency(
+                    agingRangeValue(accounting.aging_receivable, '1-10'),
+                    accounting.currency,
+                  )
+                }}
+              </li>
+              <li>
+                11-30:
+                {{
+                  formatCurrency(
+                    agingRangeValue(accounting.aging_receivable, '11-30'),
+                    accounting.currency,
+                  )
+                }}
               </li>
               <li>
                 31-60:
-                {{ formatCurrency(accounting.aging_receivable['31_60'], accounting.currency) }}
+                {{
+                  formatCurrency(
+                    agingRangeValue(accounting.aging_receivable, '31-60'),
+                    accounting.currency,
+                  )
+                }}
               </li>
               <li>
                 61-90:
-                {{ formatCurrency(accounting.aging_receivable['61_90'], accounting.currency) }}
+                {{
+                  formatCurrency(
+                    agingRangeValue(accounting.aging_receivable, '61-90'),
+                    accounting.currency,
+                  )
+                }}
               </li>
               <li>
                 >90: {{ formatCurrency(accounting.aging_receivable.over_90, accounting.currency) }}
@@ -237,13 +290,40 @@ async function goToCreateOrder() {
                 Current: {{ formatCurrency(accounting.aging_payable.current, accounting.currency) }}
               </li>
               <li>
-                1-30: {{ formatCurrency(accounting.aging_payable['1_30'], accounting.currency) }}
+                1-10:
+                {{
+                  formatCurrency(
+                    agingRangeValue(accounting.aging_payable, '1-10'),
+                    accounting.currency,
+                  )
+                }}
               </li>
               <li>
-                31-60: {{ formatCurrency(accounting.aging_payable['31_60'], accounting.currency) }}
+                11-30:
+                {{
+                  formatCurrency(
+                    agingRangeValue(accounting.aging_payable, '11-30'),
+                    accounting.currency,
+                  )
+                }}
               </li>
               <li>
-                61-90: {{ formatCurrency(accounting.aging_payable['61_90'], accounting.currency) }}
+                31-60:
+                {{
+                  formatCurrency(
+                    agingRangeValue(accounting.aging_payable, '31-60'),
+                    accounting.currency,
+                  )
+                }}
+              </li>
+              <li>
+                61-90:
+                {{
+                  formatCurrency(
+                    agingRangeValue(accounting.aging_payable, '61-90'),
+                    accounting.currency,
+                  )
+                }}
               </li>
               <li>
                 >90: {{ formatCurrency(accounting.aging_payable.over_90, accounting.currency) }}

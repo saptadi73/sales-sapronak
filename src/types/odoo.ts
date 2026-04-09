@@ -70,9 +70,14 @@ export interface CustomerDetailData {
 
 export interface AccountingAging {
   current: number
-  '1_30': number
-  '31_60': number
-  '61_90': number
+  '1_10'?: number
+  '10_30'?: number
+  '11_30'?: number
+  '30_60'?: number
+  '31_60'?: number
+  '60_90'?: number
+  '61_90'?: number
+  '1_30'?: number
   over_90: number
 }
 
