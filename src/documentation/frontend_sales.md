@@ -9,7 +9,8 @@ Fokus dokumen ini:
 - endpoint master data sales
 - endpoint customer QR
 - create draft Sales Order multi-item
-- create draft Sales Order per jenis bon
+- create draft Sales Order per jenis transaksi
+- create draft Sales Order non ongkir
 - informasi accounting customer
 - histori Sales Order customer
 
@@ -30,6 +31,7 @@ Fokus dokumen ini:
 | `/api/sales/draft-order/bon-kering` | `POST` | user | create draft Sales Order bon kering |
 | `/api/sales/draft-order/bon-partus` | `POST` | user | create draft Sales Order bon partus |
 | `/api/sales/draft-order/bon-reguler` | `POST` | user | create draft Sales Order bon reguler |
+| `/api/sales/draft-order/non-ongkir` | `POST` | user | create draft Sales Order non ongkir tanpa auto ongkir |
 
 ## Base URL
 
@@ -528,25 +530,26 @@ Setiap rule minimal berisi:
 
 - `Wilayah` pada level `wilayah.kecamatan`
 - `Produk Ongkir Wilayah`
-- `Tarif per Kg`
+- `Tarif per Unit`
 
 Perilaku backend:
 
-- backend hanya menambahkan ongkir otomatis untuk Sales Order yang dibuat dari endpoint frontend
+- backend menambahkan ongkir otomatis hanya untuk endpoint frontend yang memakai skema auto ongkir
 - backend mengambil `Wilayah Ongkir` dari customer
 - backend mencari rule berdasarkan kombinasi `wilayah_id + company`
 - jika rule ditemukan, backend menambahkan 1 line produk ongkir otomatis
-- backend menghitung total berat dari semua line produk: `qty x berat produk`
-- nominal ongkir dihitung dengan rumus `total_kg x tarif_per_kg`
-- line ongkir otomatis menyimpan ringkasan berat total dan tarif per kg pada deskripsi line
+- backend menghitung total unit dari semua line produk non-ongkir: `sum(qty)`
+- nominal ongkir dihitung dengan rumus `total_unit x tarif_per_unit`
+- line ongkir otomatis menyimpan ringkasan total unit dan tarif per unit pada deskripsi line
 - jika rule tidak ditemukan, pembuatan Sales Order akan ditolak
-- jika total berat produk `0`, pembuatan Sales Order akan ditolak
+- jika total unit produk `0`, pembuatan Sales Order akan ditolak
 
 Catatan untuk tim frontend:
 
 - frontend tidak perlu mengirim `wilayah_id`
 - backend membaca wilayah ongkir langsung dari customer
 - customer harus sudah dilengkapi field `Wilayah Ongkir`
+- endpoint `/api/sales/draft-order/non-ongkir` dikecualikan dari lookup dan perhitungan auto ongkir
 
 ## Monitoring Admin Sales
 
@@ -607,7 +610,7 @@ Mengambil list Sales Order berdasarkan `customer_qr_ref`.
 
 Membuat draft Sales Order dari frontend dan mendukung multi-item.
 
-Endpoint ini tidak mengisi default Terms and Conditions. Di backend, Terms and Conditions disimpan pada field `note` di `sale.order`. Jika frontend membutuhkan Terms and Conditions default berdasarkan jenis bon, gunakan salah satu endpoint khusus jenis bon di bagian berikutnya.
+Endpoint ini tidak mengisi default Terms and Conditions. Di backend, Terms and Conditions disimpan pada field `note` di `sale.order`. Jika frontend membutuhkan Terms and Conditions default berdasarkan jenis transaksi, gunakan salah satu endpoint khusus jenis transaksi di bagian berikutnya.
 
 #### Request body
 
@@ -666,6 +669,7 @@ Minimal kirim `partner_id` atau `customer_qr_ref`.
     "line_count": 4,
     "terms_and_conditions": "Kirim pagi",
     "is_frontend_order": true,
+    "skip_frontend_shipping": false,
     "wilayah_id": 15,
     "wilayah_name": "Kecamatan A",
     "shipping_product_id": 2001,
@@ -684,26 +688,28 @@ Minimal kirim `partner_id` atau `customer_qr_ref`.
 - `order_line` wajib minimal 1 item
 - setiap line wajib punya `product_id` dan `product_uom_qty > 0`
 - backend otomatis menambahkan line biaya pengiriman untuk order frontend berdasarkan rule wilayah customer
-- backend menghitung nominal line ongkir dari `total berat produk x tarif per kg` pada rule
+- backend menghitung nominal line ongkir dari `total unit produk x tarif per unit` pada rule
 - jika rule ongkir frontend tidak ditemukan, pembuatan order akan ditolak
 
-### Endpoint Draft Order Berdasarkan Jenis Bon
+### Endpoint Draft Order Berdasarkan Jenis Transaksi
 
-Tiga endpoint berikut memakai proses backend yang sama. Perbedaannya hanya pada isi default Terms and Conditions. Di backend, nilai ini ditulis ke field `note` pada `sale.order`.
+Empat endpoint berikut memakai proses backend yang sama untuk membuat draft order frontend. Perbedaannya ada pada isi default Terms and Conditions dan apakah order tersebut memakai auto ongkir. Di backend, nilai keterangan ini ditulis ke field `note` pada `sale.order`.
 
-| Endpoint | Isi default Terms and Conditions |
-|---|---|
-| `/api/sales/draft-order/bon-kering` | `sale order ini jenis bon kering` |
-| `/api/sales/draft-order/bon-partus` | `sale order ini jenis bon partus` |
-| `/api/sales/draft-order/bon-reguler` | `sale order ini jenis reguler` |
+| Endpoint | Isi default Terms and Conditions | Auto ongkir |
+|---|---|---|
+| `/api/sales/draft-order/bon-kering` | `sale order ini jenis bon kering` | ya |
+| `/api/sales/draft-order/bon-partus` | `sale order ini jenis bon partus` | ya |
+| `/api/sales/draft-order/bon-reguler` | `sale order ini jenis reguler` | ya |
+| `/api/sales/draft-order/non-ongkir` | `sales order non ongkir` | tidak |
 
-Jika frontend tetap mengirim `note`, backend akan menaruh teks default jenis bon di bagian atas lalu menambahkan isi `note` dari frontend di bawahnya. Response API mengembalikan hasil akhirnya pada field `terms_and_conditions`.
+Jika frontend tetap mengirim `note`, backend akan menaruh teks default jenis transaksi di bagian atas lalu menambahkan isi `note` dari frontend di bawahnya. Response API mengembalikan hasil akhirnya pada field `terms_and_conditions`.
 
 Panduan pemakaian:
 
 - gunakan `/api/sales/draft-order/bon-kering` untuk Sales Order bon kering
 - gunakan `/api/sales/draft-order/bon-partus` untuk Sales Order bon partus
 - gunakan `/api/sales/draft-order/bon-reguler` untuk Sales Order reguler
+- gunakan `/api/sales/draft-order/non-ongkir` untuk Sales Order produk tanpa ongkos kirim otomatis
 - gunakan `/api/sales/draft-order` hanya jika frontend ingin mengirim Terms and Conditions sendiri tanpa default jenis bon
 
 #### Contoh request
@@ -743,11 +749,48 @@ Panduan pemakaian:
     "line_count": 2,
     "terms_and_conditions": "sale order ini jenis bon kering\n\nKirim pagi",
     "is_frontend_order": true,
+    "skip_frontend_shipping": false,
     "wilayah_id": 15,
     "wilayah_name": "Kecamatan A",
     "shipping_product_id": 2001,
     "shipping_product_name": "Biaya Angkutan Kecamatan A",
     "shipping_price_per_kg": 1500.0
+  }
+}
+```
+
+### `POST /api/sales/draft-order/non-ongkir`
+
+Endpoint ini dipakai untuk Sales Order frontend yang khusus menjual produk tanpa ongkos kirim otomatis.
+
+Perilaku khusus endpoint ini:
+
+- backend tetap membuat order sebagai order frontend
+- backend memberi default keterangan `sales order non ongkir`
+- backend tidak melakukan lookup rule ongkir
+- backend tidak menambahkan line produk ongkir otomatis
+- customer tidak wajib punya `Wilayah Ongkir` hanya untuk endpoint ini
+
+#### Contoh response
+
+```json
+{
+  "status": "success",
+  "message": "Draft sales order created",
+  "data": {
+    "sale_order_id": 121,
+    "name": "S000121",
+    "state": "draft",
+    "amount_total": 300000.0,
+    "line_count": 1,
+    "terms_and_conditions": "sales order non ongkir\n\nPembelian ambil sendiri",
+    "is_frontend_order": true,
+    "skip_frontend_shipping": true,
+    "wilayah_id": false,
+    "wilayah_name": false,
+    "shipping_product_id": false,
+    "shipping_product_name": false,
+    "shipping_price_per_kg": false
   }
 }
 ```
@@ -770,8 +813,9 @@ Urutan implementasi yang disarankan di Vue:
 12. gunakan `/api/sales/draft-order/bon-kering` untuk bon kering
 13. gunakan `/api/sales/draft-order/bon-partus` untuk bon partus
 14. gunakan `/api/sales/draft-order/bon-reguler` untuk reguler
-15. pastikan customer yang dipilih sudah memiliki `Wilayah Ongkir`
-16. gunakan `/api/sales/draft-order` jika frontend ingin mengirim Terms and Conditions sendiri tanpa default jenis bon
+15. gunakan `/api/sales/draft-order/non-ongkir` untuk transaksi tanpa ongkir otomatis
+16. pastikan customer yang dipilih sudah memiliki `Wilayah Ongkir` jika memakai endpoint auto ongkir
+17. gunakan `/api/sales/draft-order` jika frontend ingin mengirim Terms and Conditions sendiri tanpa default jenis bon
 
 ## Contoh Alur Request Lengkap
 
@@ -877,10 +921,11 @@ export async function getJsonSession(url) {
 - tampilkan warning jika `receivable_total` atau aging customer tinggi
 - pilih endpoint draft order sesuai jenis transaksi yang dipilih user di frontend
 - frontend tidak perlu mengirim `wilayah_id` untuk create draft order
-- backend akan lookup rule ongkir frontend berdasarkan wilayah customer
-- backend menghitung total berat dari seluruh line produk non-ongkir menggunakan field `weight` pada produk
-- jika rule cocok, backend otomatis menambah 1 line produk ongkir dengan nominal `total_kg x tarif_per_kg`
-- semua produk yang dipakai untuk perhitungan ongkir berbasis kilogram harus memiliki field `weight` yang terisi benar
+- backend akan lookup rule ongkir frontend berdasarkan wilayah customer untuk endpoint yang memakai auto ongkir
+- backend menghitung total unit dari seluruh line produk non-ongkir menggunakan `product_uom_qty`
+- jika rule cocok, backend otomatis menambah 1 line produk ongkir dengan nominal `total_unit x tarif_per_unit`
+- endpoint `draft-order/non-ongkir` tidak melakukan lookup rule ongkir dan tidak menambah line ongkir
+- semua produk yang dipakai untuk perhitungan ongkir tidak lagi membutuhkan field `weight`
 - Terms and Conditions di backend disimpan pada field `note` di `sale.order`
 - `customer-qr-by-id` cocok jika frontend hanya perlu string referensi QR
 - `customer-qr-payload-by-id` cocok jika frontend ingin langsung render QR dan menyimpan metadata QR sekaligus dari `customer_id`
@@ -889,7 +934,8 @@ export async function getJsonSession(url) {
 - gunakan `format="json"` jika scanner/frontend perlu membaca detail dasar customer langsung dari isi QR
 - endpoint `draft-order` tidak memberi Terms and Conditions default
 - endpoint `draft-order/bon-kering`, `draft-order/bon-partus`, dan `draft-order/bon-reguler` akan mengisi Terms and Conditions default sesuai jenis bon
-- jika frontend mengirim `note` ke endpoint jenis bon, backend akan menggabungkannya setelah teks default jenis bon
+- endpoint `draft-order/non-ongkir` akan mengisi Terms and Conditions default `sales order non ongkir`
+- jika frontend mengirim `note` ke endpoint jenis transaksi, backend akan menggabungkannya setelah teks default jenis transaksi
 
 ## Status Implementasi Saat Ini
 
@@ -908,6 +954,7 @@ Sudah tersedia:
 - `POST /api/sales/draft-order/bon-kering`
 - `POST /api/sales/draft-order/bon-partus`
 - `POST /api/sales/draft-order/bon-reguler`
+- `POST /api/sales/draft-order/non-ongkir`
 - field `customer_qr_ref` di `res.partner`
 - auto-generate `customer_qr_ref` untuk customer baru
 - backfill `customer_qr_ref` untuk data existing saat install atau upgrade module

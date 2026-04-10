@@ -44,6 +44,7 @@ const bonTypeOptions: Array<{ value: DraftOrderBonType; label: string }> = [
   { value: 'bon-kering', label: 'Bon Kering' },
   { value: 'bon-partus', label: 'Bon Partus' },
   { value: 'bon-reguler', label: 'Bon Reguler' },
+  { value: 'non-ongkir', label: 'Non Ongkir' },
 ]
 
 const form = reactive({
@@ -64,6 +65,9 @@ const grandTotal = computed(() =>
 )
 
 const customerHasShippingWilayah = computed(() => Boolean(customer.value?.shipping_wilayah_id))
+const selectedTypeRequiresShipping = computed(() =>
+  Boolean(selectedBonType.value && selectedBonType.value !== 'non-ongkir'),
+)
 
 function lineSubtotal(line: OrderLineForm) {
   return line.product_uom_qty * line.price_unit
@@ -145,7 +149,7 @@ function validateForm() {
     return 'Customer dari QR wajib dipilih.'
   }
 
-  if (!customerHasShippingWilayah.value) {
+  if (selectedTypeRequiresShipping.value && !customerHasShippingWilayah.value) {
     return 'Customer belum memiliki Wilayah Ongkir. Lengkapi data wilayah customer terlebih dahulu.'
   }
 
@@ -158,7 +162,7 @@ function validateForm() {
   }
 
   if (!selectedBonType.value) {
-    return 'Jenis bon wajib dipilih.'
+    return 'Jenis transaksi wajib dipilih.'
   }
 
   const validLines = form.lines.filter((line) => line.product_id && line.product_uom_qty > 0)
@@ -185,7 +189,7 @@ async function submitDraftOrder() {
   try {
     const bonType = selectedBonType.value
     if (!bonType) {
-      throw new Error('Jenis bon belum dipilih.')
+      throw new Error('Jenis transaksi belum dipilih.')
     }
 
     const payloadLines = form.lines
@@ -228,8 +232,9 @@ onMounted(async () => {
     <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
       <h1 class="text-xl font-bold text-slate-900">Create Draft Sales Order</h1>
       <p class="mt-1 text-sm text-slate-600">
-        Scan QR customer untuk autofill data. Ongkos kirim/angkut ditentukan backend dari Wilayah
-        Ongkir customer, lalu isi tanggal pengiriman, payment term, jenis bon, dan item produk.
+        Scan QR customer untuk autofill data, lalu isi tanggal pengiriman, payment term, jenis
+        transaksi, dan item produk. Untuk jenis transaksi non ongkir, backend tidak menambahkan
+        ongkos kirim otomatis.
       </p>
       <p v-if="loadingMaster" class="mt-2 text-sm text-slate-500">Memuat master data...</p>
       <div v-if="loadingMaster" class="mt-3 space-y-2">
@@ -282,18 +287,25 @@ onMounted(async () => {
       </div>
 
       <p
-        v-if="customer && !customerHasShippingWilayah"
+        v-if="customer && selectedTypeRequiresShipping && !customerHasShippingWilayah"
         class="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800"
       >
         Data customer ini belum punya Wilayah Ongkir, sehingga draft order tidak bisa dibuat.
       </p>
 
       <p
-        v-if="customerHasShippingWilayah"
+        v-if="customerHasShippingWilayah && selectedTypeRequiresShipping"
         class="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800"
       >
         Ongkos kirim/angkut akan ditambahkan otomatis oleh backend berdasarkan Wilayah Ongkir
         customer.
+      </p>
+
+      <p
+        v-if="customer && selectedBonType === 'non-ongkir'"
+        class="mt-3 rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-sky-800"
+      >
+        Jenis transaksi non ongkir dipilih. Backend tidak menambah line ongkir otomatis.
       </p>
     </section>
 
@@ -334,13 +346,13 @@ onMounted(async () => {
         </label>
 
         <div class="space-y-1 md:col-span-3">
-          <span class="text-sm font-medium text-slate-700">Jenis Bon</span>
+          <span class="text-sm font-medium text-slate-700">Jenis Transaksi</span>
           <select
             v-model="selectedBonType"
             :disabled="loadingMaster"
             class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-emerald-500 focus:ring"
           >
-            <option value="">Pilih Jenis Bon</option>
+            <option value="">Pilih Jenis Transaksi</option>
             <option v-for="option in bonTypeOptions" :key="option.value" :value="option.value">
               {{ option.label }}
             </option>
@@ -429,6 +441,19 @@ onMounted(async () => {
       >
         <p><span class="font-semibold">Order:</span> {{ createdOrder.name }}</p>
         <p><span class="font-semibold">State:</span> {{ createdOrder.state }}</p>
+        <p>
+          <span class="font-semibold">Mode Pengiriman:</span>
+          <span
+            :class="[
+              'ml-1 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold',
+              createdOrder.skip_frontend_shipping
+                ? 'bg-sky-100 text-sky-800'
+                : 'bg-emerald-100 text-emerald-800',
+            ]"
+          >
+            {{ createdOrder.skip_frontend_shipping ? 'Non Ongkir' : 'Auto Ongkir' }}
+          </span>
+        </p>
         <p><span class="font-semibold">Line:</span> {{ createdOrder.line_count }}</p>
         <p>
           <span class="font-semibold">Amount Total:</span>

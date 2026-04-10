@@ -109,7 +109,7 @@ export interface DraftOrderLineInput {
   name?: string
 }
 
-export type DraftOrderBonType = 'bon-kering' | 'bon-partus' | 'bon-reguler'
+export type DraftOrderBonType = 'bon-kering' | 'bon-partus' | 'bon-reguler' | 'non-ongkir'
 
 export interface DraftOrderPayload {
   partner_id?: number
@@ -128,6 +128,7 @@ export interface DraftOrderResult {
   line_count: number
   terms_and_conditions?: string
   is_frontend_order?: boolean
+  skip_frontend_shipping?: boolean
   wilayah_id?: number
   wilayah_name?: string
   shipping_product_id?: number
