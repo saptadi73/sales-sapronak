@@ -380,6 +380,7 @@ onMounted(async () => {
               <td class="relative overflow-visible px-3 py-2">
                 <ProductSearchInput
                   v-model="line.product_id"
+                  :customer-id="customer?.partner_id ?? null"
                   :disabled="loadingMaster"
                   @select="onLineProductSelect(line, $event)"
                 />

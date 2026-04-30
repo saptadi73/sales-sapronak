@@ -218,13 +218,19 @@ export function authenticate(
 
 export function getProducts(
   baseUrl: string,
-  payload: { search?: string; limit?: number; offset?: number } = {},
+  payload: { search?: string; limit?: number; offset?: number; partner_id?: number | null } = {},
 ) {
-  return postJsonRpc<unknown>(baseUrl, '/api/sales/products', {
+  const body: Record<string, unknown> = {
     search: payload.search ?? '',
     limit: payload.limit ?? 50,
     offset: payload.offset ?? 0,
-  }).then((response) => {
+  }
+
+  if (payload.partner_id) {
+    body.partner_id = payload.partner_id
+  }
+
+  return postJsonRpc<unknown>(baseUrl, '/api/sales/products', body).then((response) => {
     const items = extractItems(response.data)
       .map((item): ProductItem | null => {
         if (!isRecord(item)) {

@@ -8,6 +8,7 @@ import { formatCurrency } from '@/utils/qr'
 const props = defineProps<{
   modelValue: number | null
   disabled?: boolean
+  customerId?: number | null
 }>()
 
 const emit = defineEmits<{
@@ -88,7 +89,12 @@ async function runSearch(q: string) {
 
   loading.value = true
   try {
-    const res = await getProducts(sessionStore.baseUrl, { search: q, limit: 20, offset: 0 })
+    const res = await getProducts(sessionStore.baseUrl, {
+      search: q,
+      limit: 20,
+      offset: 0,
+      partner_id: props.customerId ?? undefined,
+    })
     results.value = res.data.items
     open.value = results.value.length > 0
     if (open.value) {

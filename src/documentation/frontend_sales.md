@@ -10,7 +10,7 @@ Fokus dokumen ini:
 - endpoint customer QR
 - create draft Sales Order multi-item
 - create draft Sales Order per jenis transaksi
-- create draft Sales Order non ongkir
+- create draft Sales Order non-ongkir
 - informasi accounting customer
 - histori Sales Order customer
 
@@ -27,11 +27,18 @@ Fokus dokumen ini:
 | `/api/sales/customer-detail-by-qr` | `POST` | user | detail customer langsung dari `customer_qr_ref` |
 | `/api/sales/customer-accounting-summary-by-qr` | `POST` | user | summary aging hutang/piutang dari `customer_qr_ref` |
 | `/api/sales/orders-by-qr` | `POST` | user | histori Sales Order customer dari `customer_qr_ref` |
+| `/api/sales/susu-olahan/customers` | `POST` | user | list customer global untuk frontend SUSU OLAHAN |
+| `/api/sales/susu-olahan/customer-search` | `POST` | user | autocomplete customer global untuk UI HP/typeahead |
+| `/api/sales/susu-olahan/products` | `POST` | user | list produk saleable kategori SUSU OLAHAN (wajib customer, harga ikut pricelist customer) |
+| `/api/sales/susu-olahan/shipping-products` | `POST` | user | list produk ongkos kirim SUSU OLAHAN untuk dropdown |
+| `/api/sales/susu-olahan/draft-order` | `POST` | user | create draft Sales Order SUSU OLAHAN dengan auto ongkir |
 | `/api/sales/draft-order` | `POST` | user | create draft Sales Order multi-item |
+| `/api/sales/minimarket/grid-products` | `POST` | user | list produk untuk UI grid/sheet quantity minimarket (wajib customer, harga ikut pricelist customer) |
+| `/api/sales/minimarket/draft-order` | `POST` | user | create draft Sales Order dari quantity grid minimarket |
 | `/api/sales/draft-order/bon-kering` | `POST` | user | create draft Sales Order bon kering |
 | `/api/sales/draft-order/bon-partus` | `POST` | user | create draft Sales Order bon partus |
 | `/api/sales/draft-order/bon-reguler` | `POST` | user | create draft Sales Order bon reguler |
-| `/api/sales/draft-order/non-ongkir` | `POST` | user | create draft Sales Order non ongkir tanpa auto ongkir |
+| `/api/sales/draft-order/non-ongkir` | `POST` | user | create draft Sales Order non-ongkir tanpa auto ongkir |
 
 ## Base URL
 
@@ -60,6 +67,7 @@ Catatan:
 - endpoint data sales berikutnya memakai `auth="user"`
 - jika frontend berjalan beda domain, CORS dan cookie policy perlu disiapkan di server
 - untuk aplikasi Vue.js, semua request session-based sebaiknya selalu memakai `credentials: "include"`
+- untuk endpoint list product minimarket/susu olahan, frontend harus memilih customer terlebih dahulu sebelum memanggil endpoint
 
 ## JSON-RPC Request Format
 
@@ -151,6 +159,34 @@ Catatan implementasi:
 
 ## Endpoint Master Data
 
+### Setup Business Category `SUSU OLAHAN`
+
+Untuk frontend minimarket susu olahan, buat master `Business Category` dengan nama resmi:
+
+```text
+SUSU OLAHAN
+```
+
+Endpoint khusus susu olahan melakukan lookup secara case-insensitive, sehingga nama `susu olahan` juga terbaca. Namun untuk menjaga master data rapi, gunakan satu nama resmi saja: `SUSU OLAHAN`.
+
+Langkah ringkas:
+
+1. Masuk ke Sales Odoo.
+2. Buka menu `Business Categories`.
+3. Buat category baru dengan `Name = SUSU OLAHAN`.
+4. Isi `Code`, misalnya `SUSU_OLAHAN`.
+5. Pilih `Company`.
+6. Isi `Analytic Account` jika transaksi kategori ini perlu analytic khusus.
+7. Aktifkan `Gunakan Ongkos Kirim di Sales Order` jika order minimarket tetap memakai auto ongkir.
+8. Beri akses user Sales melalui `Allowed Business Categories` atau Team Sales yang memakai category `SUSU OLAHAN`.
+9. Set produk susu kemasan ke Business Category `SUSU OLAHAN`. Field ini tersedia dari modul `grt_inventory_business_category`.
+10. Buat kategori produk `All / Saleable / Ongkos Kirim`.
+11. Set produk ongkos kirim ke kategori tersebut dan Business Category `SUSU OLAHAN`.
+12. Buka `Sales > Frontend Shipping Rules`.
+13. Untuk setiap wilayah customer, buat rule dan pilih `Produk Ongkir Wilayah` dari produk ongkos kirim SUSU OLAHAN.
+14. Isi `Tarif per Unit`.
+15. Customer pada list susu olahan diambil dari master customer global; Business Category tetap dipakai sebagai konteks produk/order, bukan filter master customer.
+
 ### `POST /api/sales/products`
 
 Mengambil list produk untuk kebutuhan form Sales Order.
@@ -183,6 +219,56 @@ Mengambil list produk untuk kebutuhan form Sales Order.
         "uom_name": "Unit",
         "currency_id": 13,
         "currency_name": "IDR"
+      }
+    ],
+    "count": 1
+  }
+}
+```
+
+### `POST /api/sales/minimarket/grid-products`
+
+Mengambil produk dalam format grid entry untuk UI Sales minimarket. Endpoint ini mengembalikan `columns` dan `items`, dengan field `quantity` sebagai input utama frontend Vue.
+Untuk flow minimarket di modul ini, backend otomatis membatasi produk ke Business Category `SUSU OLAHAN`.
+Endpoint ini wajib menerima customer (`customer_id`/`partner_id` atau `customer_qr_ref`) karena harga produk mengikuti pricelist customer terpilih.
+
+Dokumentasi lengkap flow minimarket ada di `minimarket_sales_order_entry_ui.md`.
+
+Contoh request:
+
+```json
+{
+  "params": {
+    "customer_id": 45,
+    "search": "susu",
+    "category_ids": [],
+    "quantities": {
+      "101": 24
+    },
+    "limit": 100,
+    "offset": 0
+  }
+}
+```
+
+Contoh response ringkas:
+
+```json
+{
+  "status": "success",
+  "data": {
+    "customer_id": 45,
+    "pricelist_name": "Pricelist Minimarket",
+    "items": [
+      {
+        "product_id": 101,
+        "default_code": "SUSU-UHT-200",
+        "barcode": "899000000001",
+        "name": "Susu UHT 200ml",
+        "category_name": "Susu Kemasan",
+        "list_price": 4300.0,
+        "uom_name": "Pcs",
+        "quantity": 24.0
       }
     ],
     "count": 1
@@ -240,6 +326,218 @@ Catatan integrasi:
 - jika frontend hanya perlu lookup ulang customer yang sudah punya QR reference, gunakan `customer_qr_ref`
 - jika frontend ingin membuat atau membentuk ulang payload QR, frontend bisa memakai `customer_id` atau `customer_qr_ref` sesuai data yang tersedia
 - `customer_qr_ref` sudah cukup untuk flow scan, detail customer, summary accounting, histori order, dan pembentukan ulang payload QR
+
+## Endpoint SUSU OLAHAN
+
+### `POST /api/sales/susu-olahan/products`
+
+Mengambil produk `Can be Sold` dengan Business Category `SUSU OLAHAN`.
+Endpoint ini wajib menerima customer (`customer_id`/`partner_id` atau `customer_qr_ref`) agar `list_price` sesuai pricelist customer.
+
+Request:
+
+```json
+{
+  "params": {
+    "customer_id": 45,
+    "search": "uht",
+    "limit": 100,
+    "offset": 0
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "status": "success",
+  "data": {
+    "business_category_id": 2,
+    "business_category_name": "SUSU OLAHAN",
+    "customer_id": 45,
+    "pricelist_name": "Pricelist Minimarket",
+    "items": [
+      {
+        "product_id": 101,
+        "default_code": "SUSU-UHT-200",
+        "barcode": "899000000001",
+        "name": "Susu UHT 200ml",
+        "category_name": "Susu Kemasan",
+        "list_price": 4300.0,
+        "uom_name": "Pcs",
+        "quantity": 0.0,
+        "business_category_id": 2,
+        "business_category_name": "SUSU OLAHAN"
+      }
+    ],
+    "count": 1
+  }
+}
+```
+
+Catatan:
+
+- endpoint ini membutuhkan field `product.product.business_category_id`
+- field tersebut tersedia jika modul `grt_inventory_business_category` sudah aktif/upgrade
+- jika field belum tersedia, endpoint akan mengembalikan error yang menjelaskan modul yang perlu diaktifkan
+
+### `POST /api/sales/susu-olahan/shipping-products`
+
+Mengambil produk ongkos kirim untuk dropdown frontend. Filter default:
+
+- kategori produk `All / Saleable / Ongkos Kirim`
+- Business Category produk `SUSU OLAHAN`
+- produk aktif dan `Can be Sold`
+
+Gunakan endpoint ini untuk dropdown `Produk Ongkir Wilayah` pada UI setup rule ongkir frontend. Produk yang dipilih tetap disimpan pada model `sale.frontend.shipping.rule`.
+
+Request:
+
+```json
+{
+  "params": {
+    "search": "ongkir",
+    "limit": 100,
+    "offset": 0
+  }
+}
+```
+
+Path kategori juga bisa dikirim eksplisit:
+
+```json
+{
+  "params": {
+    "category_path": "all/saleable/ongkoskirim"
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "status": "success",
+  "data": {
+    "business_category_id": 2,
+    "business_category_name": "SUSU OLAHAN",
+    "category_id": 12,
+    "category_name": "All / Saleable / Ongkos Kirim",
+    "items": [
+      {
+        "product_id": 2001,
+        "default_code": "ONGKIR-SO",
+        "name": "Ongkos Kirim Susu Olahan",
+        "category_name": "All / Saleable / Ongkos Kirim",
+        "list_price": 0.0,
+        "uom_name": "Unit",
+        "business_category_id": 2,
+        "business_category_name": "SUSU OLAHAN"
+      }
+    ],
+    "count": 1
+  }
+}
+```
+
+### `POST /api/sales/susu-olahan/customers`
+
+Mengambil master customer global untuk frontend `SUSU OLAHAN`.
+
+Request:
+
+```json
+{
+  "params": {
+    "search": "minimarket",
+    "limit": 50,
+    "offset": 0
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "status": "success",
+  "data": {
+    "business_category_id": 2,
+    "business_category_name": "SUSU OLAHAN",
+    "items": [
+      {
+        "partner_id": 45,
+        "customer_id": 45,
+        "name": "Minimarket Cabang A",
+        "ref": "MM-A",
+        "customer_qr_ref": "CUSTQR2603-000001",
+        "shipping_wilayah_id": 15,
+        "shipping_wilayah_name": "Kecamatan A",
+        "payment_term_id": 4,
+        "payment_term_name": "14 Days",
+        "customer_segment_name": "Repeat",
+        "last_sale_date": "2026-04-20",
+        "sales_frequency": 8,
+        "total_sales_amount": 12500000.0
+      }
+    ],
+    "count": 1
+  }
+}
+```
+
+Customer di endpoint ini tidak difilter berdasarkan Business Category. Field behavior/analysis kategori `SUSU OLAHAN` hanya dipakai untuk mengisi ringkasan segment dan histori bila datanya tersedia.
+
+### `POST /api/sales/susu-olahan/customer-search`
+
+Autocomplete customer ringan untuk UI HP. Endpoint ini kompatibel dengan input `q`, `term`, `query`, atau `search`, sehingga bisa dipakai oleh typeahead/Select2 tanpa mengambil semua customer.
+
+Alias endpoint:
+
+- `POST /api/sales/susu-olahan/customers/search`
+
+Request:
+
+```json
+{
+  "params": {
+    "q": "alfa",
+    "limit": 20,
+    "min_chars": 1
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "status": "success",
+  "data": {
+    "items": [
+      {
+        "id": 45,
+        "text": "Alfamart Cabang A [ALFA-A] CUSTQR2603-000001",
+        "partner_id": 45,
+        "customer_id": 45,
+        "name": "Alfamart Cabang A",
+        "ref": "ALFA-A",
+        "customer_qr_ref": "CUSTQR2603-000001"
+      }
+    ],
+    "results": [
+      {
+        "id": 45,
+        "text": "Alfamart Cabang A [ALFA-A] CUSTQR2603-000001"
+      }
+    ],
+    "count": 1,
+    "has_more": false
+  }
+}
+```
+
 ## Endpoint Customer
 
 ### `POST /api/sales/customer-qr-by-id`
@@ -520,7 +818,7 @@ Catatan untuk frontend:
 
 ## Konfigurasi Rule Ongkir Frontend
 
-Sebelum frontend membuat Sales Order yang memakai auto biaya pengiriman, backend harus menyiapkan rule ongkir terlebih dahulu.
+Sebelum frontend membuat Sales Order yang memakai auto ongkir, backend harus menyiapkan rule ongkir terlebih dahulu.
 
 Setup dilakukan di menu:
 
@@ -531,6 +829,12 @@ Setiap rule minimal berisi:
 - `Wilayah` pada level `wilayah.kecamatan`
 - `Produk Ongkir Wilayah`
 - `Tarif per Unit`
+
+Untuk flow `SUSU OLAHAN`, pilihan `Produk Ongkir Wilayah` sebaiknya diambil dari:
+
+- `POST /api/sales/susu-olahan/shipping-products`
+
+Dengan begitu produk ongkos kirim yang tampil di frontend sudah dibatasi ke kategori produk `All / Saleable / Ongkos Kirim` dan Business Category produk `SUSU OLAHAN`.
 
 Perilaku backend:
 
@@ -673,7 +977,7 @@ Minimal kirim `partner_id` atau `customer_qr_ref`.
     "wilayah_id": 15,
     "wilayah_name": "Kecamatan A",
     "shipping_product_id": 2001,
-    "shipping_product_name": "Biaya Angkutan Kecamatan A",
+    "shipping_product_name": "Biaya Ongkir Kecamatan A",
     "shipping_price_per_kg": 1500.0
   }
 }
@@ -687,9 +991,96 @@ Minimal kirim `partner_id` atau `customer_qr_ref`.
 - customer wajib punya `Wilayah Ongkir`
 - `order_line` wajib minimal 1 item
 - setiap line wajib punya `product_id` dan `product_uom_qty > 0`
-- backend otomatis menambahkan line biaya pengiriman untuk order frontend berdasarkan rule wilayah customer
+- backend otomatis menambahkan line ongkir untuk order frontend berdasarkan rule wilayah customer
 - backend menghitung nominal line ongkir dari `total unit produk x tarif per unit` pada rule
 - jika rule ongkir frontend tidak ditemukan, pembuatan order akan ditolak
+
+### `POST /api/sales/minimarket/draft-order`
+
+Membuat draft Sales Order dari UI minimarket berbentuk grid/sheet. Frontend cukup mengirim quantity per produk, lalu backend mengubahnya menjadi `order_line`.
+
+Endpoint ini cocok untuk Sales yang input permintaan susu kemasan waralaba minimarket karena tidak perlu memakai pola `add item` satu per satu seperti form Sales Order Odoo.
+
+Contoh request dengan `grid_lines`:
+
+```json
+{
+  "params": {
+    "partner_id": 45,
+    "commitment_date": "2026-04-30 10:00:00",
+    "payment_term_id": 4,
+    "team_id": 3,
+    "business_category_id": 2,
+    "sale_order_type": "reguler",
+    "note": "PO minimarket cabang A",
+    "grid_lines": [
+      {"product_id": 101, "quantity": 24},
+      {"product_id": 102, "quantity": 12},
+      {"product_id": 103, "quantity": 0}
+    ]
+  }
+}
+```
+
+Contoh request dengan object `quantities`, yang biasanya lebih natural untuk state Vue:
+
+```json
+{
+  "params": {
+    "partner_id": 45,
+    "commitment_date": "2026-04-30 10:00:00",
+    "payment_term_id": 4,
+    "team_id": 3,
+    "business_category_id": 2,
+    "quantities": {
+      "101": 24,
+      "102": 12,
+      "103": 0
+    }
+  }
+}
+```
+
+Catatan:
+
+- quantity `0` akan diabaikan
+- jika `sale_order_type` kosong, backend memakai `reguler`
+- default Terms and Conditions endpoint ini adalah `sales order minimarket`
+- response sama dengan endpoint `/api/sales/draft-order`
+- dokumentasi detail ada di `minimarket_sales_order_entry_ui.md`
+
+### `POST /api/sales/susu-olahan/draft-order`
+
+Membuat draft Sales Order khusus Business Category `SUSU OLAHAN`. Payload sama dengan endpoint minimarket, tetapi backend otomatis mengisi/menjaga `business_category_id = SUSU OLAHAN`.
+
+Backend juga otomatis menambahkan line ongkir dari konfigurasi `Sales > Frontend Shipping Rules`: produk ongkir diambil dari `Produk Ongkir Wilayah`, lalu nominal dihitung dari `total quantity produk x Tarif per Unit`.
+
+Contoh request:
+
+```json
+{
+  "params": {
+    "partner_id": 45,
+    "commitment_date": "2026-04-30 10:00:00",
+    "payment_term_id": 4,
+    "team_id": 3,
+    "sale_order_type": "reguler",
+    "note": "PO susu olahan cabang A",
+    "quantities": {
+      "101": 24,
+      "102": 12
+    }
+  }
+}
+```
+
+Catatan:
+
+- customer wajib punya `Wilayah Ongkir`
+- wilayah customer wajib punya rule di `sale.frontend.shipping.rule`
+- produk ongkir rule wajib `Can be Sold`
+- semua produk order wajib punya Business Category `SUSU OLAHAN`
+- tipe `peralatan` tidak diterima di endpoint ini karena behavior-nya memang non-ongkir
 
 ### Endpoint Draft Order Berdasarkan Jenis Transaksi
 
@@ -709,7 +1100,7 @@ Panduan pemakaian:
 - gunakan `/api/sales/draft-order/bon-kering` untuk Sales Order bon kering
 - gunakan `/api/sales/draft-order/bon-partus` untuk Sales Order bon partus
 - gunakan `/api/sales/draft-order/bon-reguler` untuk Sales Order reguler
-- gunakan `/api/sales/draft-order/non-ongkir` untuk Sales Order produk tanpa ongkos kirim otomatis
+- gunakan `/api/sales/draft-order/non-ongkir` untuk Sales Order `peralatan` yang tanpa ongkir dan tanpa fee sales commission
 - gunakan `/api/sales/draft-order` hanya jika frontend ingin mengirim Terms and Conditions sendiri tanpa default jenis bon
 
 #### Contoh request
@@ -753,7 +1144,7 @@ Panduan pemakaian:
     "wilayah_id": 15,
     "wilayah_name": "Kecamatan A",
     "shipping_product_id": 2001,
-    "shipping_product_name": "Biaya Angkutan Kecamatan A",
+    "shipping_product_name": "Biaya Ongkir Kecamatan A",
     "shipping_price_per_kg": 1500.0
   }
 }
@@ -761,12 +1152,13 @@ Panduan pemakaian:
 
 ### `POST /api/sales/draft-order/non-ongkir`
 
-Endpoint ini dipakai untuk Sales Order frontend yang khusus menjual produk tanpa ongkos kirim otomatis.
+Endpoint ini dipakai untuk Sales Order frontend yang khusus menjual transaksi `peralatan`.
 
 Perilaku khusus endpoint ini:
 
 - backend tetap membuat order sebagai order frontend
 - backend memberi default keterangan `sales order non ongkir`
+- backend otomatis mengisi `sale_order_type = "peralatan"`
 - backend tidak melakukan lookup rule ongkir
 - backend tidak menambahkan line produk ongkir otomatis
 - customer tidak wajib punya `Wilayah Ongkir` hanya untuk endpoint ini
@@ -808,14 +1200,16 @@ Urutan implementasi yang disarankan di Vue:
 7. jika QR discan dan backend lookup memakai ref, panggil `customer-detail-by-qr`
 8. panggil `customer-accounting-summary-by-qr`
 9. panggil `orders-by-qr`
-10. user pilih banyak item
-11. pilih endpoint create order yang sesuai dengan jenis transaksi
-12. gunakan `/api/sales/draft-order/bon-kering` untuk bon kering
-13. gunakan `/api/sales/draft-order/bon-partus` untuk bon partus
-14. gunakan `/api/sales/draft-order/bon-reguler` untuk reguler
-15. gunakan `/api/sales/draft-order/non-ongkir` untuk transaksi tanpa ongkir otomatis
-16. pastikan customer yang dipilih sudah memiliki `Wilayah Ongkir` jika memakai endpoint auto ongkir
-17. gunakan `/api/sales/draft-order` jika frontend ingin mengirim Terms and Conditions sendiri tanpa default jenis bon
+10. untuk flow susu olahan, ambil produk dari `/api/sales/susu-olahan/products`
+11. jika frontend menyediakan setup rule ongkir, ambil dropdown produk ongkir dari `/api/sales/susu-olahan/shipping-products`
+12. user pilih banyak item
+13. gunakan `/api/sales/susu-olahan/draft-order` untuk membuat order susu olahan dengan auto ongkir
+14. gunakan `/api/sales/draft-order/bon-kering` untuk bon kering
+15. gunakan `/api/sales/draft-order/bon-partus` untuk bon partus
+16. gunakan `/api/sales/draft-order/bon-reguler` untuk reguler
+17. gunakan `/api/sales/draft-order/non-ongkir` untuk transaksi `peralatan`
+18. pastikan customer yang dipilih sudah memiliki `Wilayah Ongkir` jika memakai endpoint auto ongkir
+19. gunakan `/api/sales/draft-order` jika frontend ingin mengirim Terms and Conditions sendiri tanpa default jenis bon
 
 ## Contoh Alur Request Lengkap
 
@@ -855,6 +1249,12 @@ await postJsonRpc(`${baseUrl}/api/sales/customer-accounting-summary-by-qr`, {
 await postJsonRpc(`${baseUrl}/api/sales/orders-by-qr`, {
   customer_qr_ref,
   limit: 20,
+  offset: 0,
+});
+
+await postJsonRpc(`${baseUrl}/api/sales/susu-olahan/shipping-products`, {
+  search: "ongkir",
+  limit: 100,
   offset: 0,
 });
 
@@ -951,6 +1351,12 @@ Sudah tersedia:
 - `POST /api/sales/customer-accounting-summary-by-qr`
 - `POST /api/sales/orders-by-qr`
 - `POST /api/sales/draft-order`
+- `POST /api/sales/susu-olahan/products`
+- `POST /api/sales/susu-olahan/customers`
+- `POST /api/sales/susu-olahan/shipping-products`
+- `POST /api/sales/susu-olahan/draft-order`
+- endpoint list produk minimarket/susu olahan wajib customer (`customer_id`/`partner_id` atau `customer_qr_ref`)
+- harga `list_price` di endpoint list produk minimarket/susu olahan mengikuti pricelist customer terpilih
 - `POST /api/sales/draft-order/bon-kering`
 - `POST /api/sales/draft-order/bon-partus`
 - `POST /api/sales/draft-order/bon-reguler`
@@ -966,3 +1372,99 @@ Sudah tersedia:
 - sales order model: `grt_sales_business_category/models/sale_order.py`
 - accounting move model: `grt_sales_business_category/models/account_move.py`
 - sequence QR ref: `grt_sales_business_category/data/res_partner_sequence.xml`
+
+## Update API Sales Order Type (2026-04-23)
+
+Mulai update ini, frontend dapat diminta mengirim `sale_order_type` saat membuat draft Sales Order.
+
+Kapan wajib:
+
+- wajib jika `business_category_id` atau `team_id` yang dipakai mengarah ke business category dengan setting `Gunakan Tipe Sales Order`
+- tidak wajib untuk business category yang tidak mengaktifkan fitur tersebut
+
+Nilai yang valid:
+
+- `reguler`
+- `kering`
+- `partus`
+- `peralatan`
+- `silase`
+
+Contoh request `POST /api/sales/draft-order`:
+
+```json
+{
+  "params": {
+    "partner_id": 45,
+    "commitment_date": "2026-03-15 10:00:00",
+    "payment_term_id": 4,
+    "team_id": 3,
+    "business_category_id": 2,
+    "sale_order_type": "kering",
+    "note": "Kirim pagi",
+    "order_line": [
+      {
+        "product_id": 1001,
+        "product_uom_qty": 25,
+        "price_unit": 12000
+      }
+    ]
+  }
+}
+```
+
+Aturan untuk endpoint khusus:
+
+- `/api/sales/draft-order/bon-kering` -> backend otomatis memaksa `sale_order_type = "kering"`
+- `/api/sales/draft-order/bon-partus` -> backend otomatis memaksa `sale_order_type = "partus"`
+- `/api/sales/draft-order/bon-reguler` -> backend otomatis memaksa `sale_order_type = "reguler"`
+- `/api/sales/draft-order/non-ongkir` -> backend otomatis memaksa `sale_order_type = "peralatan"`
+
+Tambahan response:
+
+- `sale_order_type`
+- `sale_order_type_label`
+
+Contoh potongan response:
+
+```json
+{
+  "status": "success",
+  "message": "Draft sales order created",
+  "data": {
+    "sale_order_id": 120,
+    "name": "S000120",
+    "sale_order_type": "kering",
+    "sale_order_type_label": "Kering"
+  }
+}
+```
+
+## Update Default Ongkir dan Commission per Type (2026-04-23)
+
+Payload `sale_order_type` sekarang juga menentukan default ongkir dan fee sales commission.
+
+Default per type:
+
+- `reguler` -> ongkir aktif, sales commission aktif
+- `kering` -> ongkir aktif, sales commission aktif
+- `partus` -> ongkir aktif, sales commission aktif
+- `peralatan` -> ongkir nonaktif, sales commission nonaktif
+- `silase` -> ongkir aktif, sales commission nonaktif
+
+Default commission method:
+
+- jika commission aktif, method default adalah `weight`
+
+Catatan endpoint:
+
+- endpoint `/api/sales/draft-order` akan mengikuti default di atas berdasarkan `sale_order_type`
+- endpoint `/api/sales/draft-order/bon-kering` akan memaksa `sale_order_type = "kering"`
+- endpoint `/api/sales/draft-order/bon-partus` akan memaksa `sale_order_type = "partus"`
+- endpoint `/api/sales/draft-order/bon-reguler` akan memaksa `sale_order_type = "reguler"`
+- endpoint `/api/sales/draft-order/non-ongkir` dipakai untuk transaksi `peralatan`, sehingga tetap tanpa ongkir dan tanpa fee sales commission
+
+Tambahan response draft order jika modul `grt_sales_commission` terpasang:
+
+- `sales_commission_enabled`
+- `sales_commission_method`
