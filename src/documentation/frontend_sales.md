@@ -20,6 +20,7 @@ Fokus dokumen ini:
 |---|---|---|---|
 | `/api/sales/authenticate` | `POST` | public | login dan membuat session Odoo |
 | `/api/sales/products` | `POST` | user | list product dan price |
+| `/api/sales/sale-order-types` | `POST` | user | list tipe Sales Order sesuai Business Category aktif/default user |
 | `/api/sales/payment-terms` | `POST` | user | list Payment Terms |
 | `/api/sales/customer-qr-by-id` | `POST` | user | ambil `customer_qr_ref` dari `customer_id` |
 | `/api/sales/customer-qr-payload-by-id` | `POST` | user | ambil payload QR siap render dari `customer_id` |
@@ -308,6 +309,70 @@ Contoh response ringkas:
   }
 }
 ```
+
+### `POST /api/sales/sale-order-types`
+
+Mengambil daftar tipe Sales Order untuk dropdown frontend. Endpoint ini memakai active/default Business Category akun user dan mengembalikan flag apakah tipe Sales Order wajib dipilih.
+
+Alias:
+
+- `POST /api/sales/order-types`
+- `POST /api/sales/minimarket/sale-order-types`
+- `POST /api/sales/susu-olahan/sale-order-types`
+
+#### Request body
+
+```json
+{
+  "params": {}
+}
+```
+
+#### Response
+
+```json
+{
+  "status": "success",
+  "data": {
+    "business_category_id": 16,
+    "business_category_name": "Susu Olahan",
+    "use_sale_order_type": true,
+    "requires_sale_order_type": true,
+    "items": [
+      {
+        "key": "reguler",
+        "value": "reguler",
+        "label": "Reguler",
+        "enabled": true,
+        "defaults": {
+          "skip_frontend_shipping": true,
+          "sales_commission_enabled": true,
+          "sales_commission_method": "weight"
+        }
+      },
+      {
+        "key": "kering",
+        "value": "kering",
+        "label": "Kering",
+        "enabled": true,
+        "defaults": {
+          "skip_frontend_shipping": true,
+          "sales_commission_enabled": true,
+          "sales_commission_method": "weight"
+        }
+      }
+    ],
+    "count": 5
+  }
+}
+```
+
+Catatan:
+
+- nilai yang dikirim saat create/update order adalah `sale_order_type`
+- nilai valid: `reguler`, `kering`, `partus`, `peralatan`, `silase`
+- jika `requires_sale_order_type` bernilai `true`, frontend wajib mengirim `sale_order_type`
+- untuk flow minimarket/susu olahan, backend menerima `reguler`, `kering`, `partus`, dan `silase`
 
 ### `POST /api/sales/payment-terms`
 
@@ -1347,7 +1412,7 @@ Perilaku khusus endpoint ini:
 Urutan implementasi yang disarankan di Vue:
 
 1. login ke `/api/sales/authenticate`
-2. ambil master data: `products`, `payment-terms`
+2. ambil master data: `products`, `sale-order-types`, `payment-terms`
 3. jika frontend punya `customer_id`, panggil `customer-qr-payload-by-id` untuk membentuk payload QR
 4. jika frontend sudah punya `customer_qr_ref`, panggil `customer-qr-payload-by-ref`
 5. pilih `format="ref"` jika QR hanya menyimpan reference string
@@ -1357,7 +1422,7 @@ Urutan implementasi yang disarankan di Vue:
 9. panggil `orders-by-qr`
 10. untuk flow susu olahan, ambil produk dari `/api/sales/susu-olahan/products`
 11. jika frontend menyediakan setup rule ongkir, ambil dropdown produk ongkir dari `/api/sales/susu-olahan/shipping-products`
-12. user pilih banyak item
+12. user pilih banyak item dan tipe Sales Order
 13. gunakan `/api/sales/susu-olahan/draft-order` untuk membuat order susu olahan dengan auto ongkir
 14. gunakan `/api/sales/draft-order/bon-kering` untuk bon kering
 15. gunakan `/api/sales/draft-order/bon-partus` untuk bon partus
@@ -1382,6 +1447,8 @@ await postJsonRpc(`${baseUrl}/api/sales/products`, {
 });
 
 await postJsonRpc(`${baseUrl}/api/sales/payment-terms`, {});
+
+await postJsonRpc(`${baseUrl}/api/sales/sale-order-types`, {});
 
 await postJsonRpc(`${baseUrl}/api/sales/customer-qr-payload-by-id`, {
   customer_id: 45,
@@ -1498,6 +1565,7 @@ Sudah tersedia:
 
 - `POST /api/sales/authenticate`
 - `POST /api/sales/products`
+- `POST /api/sales/sale-order-types`
 - `POST /api/sales/payment-terms`
 - `POST /api/sales/customer-qr-by-id`
 - `POST /api/sales/customer-qr-payload-by-id`
