@@ -80,6 +80,13 @@ function productNameOnly(p: ProductItem) {
 }
 
 async function runSearch(q: string) {
+  if (!props.customerId) {
+    results.value = []
+    open.value = false
+    loading.value = false
+    return
+  }
+
   if (q.trim().length < 2) {
     results.value = []
     open.value = false
@@ -94,6 +101,7 @@ async function runSearch(q: string) {
       limit: 20,
       offset: 0,
       partner_id: props.customerId ?? undefined,
+      useFrontendCategoryFlow: true,
     })
     results.value = res.data.items
     open.value = results.value.length > 0
@@ -193,6 +201,13 @@ watch(open, async (isOpen) => {
   await nextTick()
   updateDropdownPlacement()
 })
+
+watch(
+  () => props.customerId,
+  () => {
+    clear()
+  },
+)
 
 onMounted(() => {
   const syncDropdownPlacement = () => {
@@ -299,6 +314,10 @@ onMounted(() => {
       class="mt-1 text-xs text-slate-400"
     >
       Produk tidak ditemukan.
+    </p>
+
+    <p v-if="!customerId" class="mt-1 text-xs text-amber-600">
+      Pilih customer dulu agar harga produk mengikuti pricelist customer.
     </p>
   </div>
 </template>

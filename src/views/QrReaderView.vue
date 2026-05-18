@@ -79,8 +79,8 @@ async function loadByQrRef(qrRef: string) {
     customer.value = null
     accounting.value = null
     orders.value = []
-    errorMessage.value =
-      error instanceof Error ? error.message : 'Gagal memuat data customer dari QR.'
+    const baseError = error instanceof Error ? error.message : 'Gagal memuat data customer dari QR.'
+    errorMessage.value = `${baseError} Jika data terasa tidak ditemukan, cek active/default Business Category akun login.`
   } finally {
     loading.value = false
   }
@@ -107,6 +107,17 @@ async function goToCreateOrder() {
     query: { qr: customerQrRef.value },
   })
 }
+
+async function goToSalesOrders() {
+  if (!customerQrRef.value) {
+    return
+  }
+
+  await router.push({
+    path: '/sales-orders',
+    query: { customer_qr_ref: customerQrRef.value },
+  })
+}
 </script>
 
 <template>
@@ -115,6 +126,10 @@ async function goToCreateOrder() {
       <h1 class="text-xl font-bold text-slate-900">Reader QR Customer</h1>
       <p class="mt-1 text-sm text-slate-600">
         Scan QR untuk membaca customer, posisi hutang/piutang, dan histori sales order.
+      </p>
+      <p class="mt-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+        Detail customer, summary accounting, dan histori order dari QR akan mengikuti active/default
+        Business Category akun login saat ini.
       </p>
     </div>
 
@@ -208,13 +223,22 @@ async function goToCreateOrder() {
           wilayah dilengkapi.
         </p>
 
-        <button
-          type="button"
-          class="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700"
-          @click="goToCreateOrder"
-        >
-          Buat Sales Order dari Customer Ini
-        </button>
+        <div class="flex flex-wrap gap-2">
+          <button
+            type="button"
+            class="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700"
+            @click="goToCreateOrder"
+          >
+            Buat Sales Order dari Customer Ini
+          </button>
+          <button
+            type="button"
+            class="rounded-lg bg-slate-700 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+            @click="goToSalesOrders"
+          >
+            Lihat Daftar SO Customer
+          </button>
+        </div>
       </article>
 
       <article class="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
@@ -364,7 +388,8 @@ async function goToCreateOrder() {
             </tr>
             <tr v-if="orders.length === 0">
               <td colspan="6" class="px-3 py-4 text-center text-slate-500">
-                Belum ada histori order.
+                Belum ada histori order. Jika customer ini punya histori di sistem namun tidak
+                tampil, pastikan active/default Business Category akun login sudah sesuai.
               </td>
             </tr>
           </tbody>

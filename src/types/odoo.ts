@@ -34,7 +34,7 @@ export interface PaymentTermItem {
 }
 
 export interface OrderTypeItem {
-  value: 'kering' | 'basah' | string
+  value: 'reguler' | 'kering' | 'partus' | 'peralatan' | 'silase' | string
   label: string
 }
 
@@ -114,6 +114,8 @@ export type DraftOrderBonType = 'bon-kering' | 'bon-partus' | 'bon-reguler' | 'n
 export interface DraftOrderPayload {
   partner_id?: number
   customer_qr_ref?: string
+  frontend_request_uid?: string
+  idempotency_key?: string
   commitment_date?: string
   sale_order_type?: string
   payment_term_id?: number
@@ -126,12 +128,87 @@ export interface DraftOrderResult {
   state: string
   amount_total: number
   line_count: number
+  sale_order_type?: string
+  sale_order_type_label?: string
   terms_and_conditions?: string
   is_frontend_order?: boolean
+  is_duplicate_request?: boolean
+  frontend_request_uid?: string
   skip_frontend_shipping?: boolean
   wilayah_id?: number
   wilayah_name?: string
   shipping_product_id?: number
   shipping_product_name?: string
   shipping_price_per_kg?: number
+}
+
+export type FrontendOrderScope = 'susu-olahan' | 'minimarket'
+
+export interface FrontendOrderListPayload {
+  business_category_id?: number
+  frontend_only?: boolean
+  unpaid_only?: boolean
+  date_from?: string
+  date_to?: string
+  date_field?: 'date_order' | 'commitment_date' | string
+  payment_status?: string
+  payment_statuses?: string[]
+  include_lines?: boolean
+  include_accounting?: boolean
+  limit?: number
+  offset?: number
+}
+
+export interface FrontendOrderListItem {
+  sale_order_id: number
+  name: string
+  partner_id?: number
+  partner_name?: string
+  customer_qr_ref?: string
+  date_order?: string
+  commitment_date?: string | null
+  amount_total: number
+  state: string
+  payment_status?: string
+  sale_order_type?: string
+  sale_order_type_label?: string
+  approval_state?: string
+  business_category_id?: number
+  business_category_name?: string
+}
+
+export interface FrontendOrderListData {
+  items: FrontendOrderListItem[]
+  count: number
+}
+
+export interface FrontendOrderLineInput {
+  product_id: number
+  quantity: number
+  price_unit?: number
+  name?: string
+}
+
+export interface FrontendOrderDetailData {
+  sale_order_id: number
+  name: string
+  state: string
+  partner_id?: number
+  customer_qr_ref?: string
+  commitment_date?: string | null
+  payment_term_id?: number | null
+  sale_order_type?: string | null
+  note?: string
+  can_edit?: boolean
+  can_update?: boolean
+  can_confirm?: boolean
+  quantities?: Record<string, number>
+  grid_lines?: FrontendOrderLineInput[]
+  lines?: Array<{
+    product_id: number
+    product_uom_qty?: number
+    quantity?: number
+    price_unit?: number
+    name?: string
+  }>
 }

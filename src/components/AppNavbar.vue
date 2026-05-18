@@ -13,6 +13,7 @@ const links = computed(() => [
   { label: 'QR Generator', to: '/qr-generator' },
   { label: 'QR Reader', to: '/qr-reader' },
   { label: 'Sales Order', to: '/sales-order' },
+  { label: 'Sales Orders', to: '/sales-orders' },
 ])
 
 async function logout() {

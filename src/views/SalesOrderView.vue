@@ -6,13 +6,17 @@ import QrScanner from '@/components/QrScanner.vue'
 import {
   createDraftOrderByBonType,
   getCustomerDetailByQr,
+  getFrontendOrderDetail,
   getPaymentTerms,
+  updateFrontendOrder,
 } from '@/services/odooApi'
 import { useSessionStore } from '@/stores/session'
 import type {
-  DraftOrderBonType,
   CustomerDetailData,
+  DraftOrderBonType,
   DraftOrderResult,
+  FrontendOrderDetailData,
+  FrontendOrderScope,
   PaymentTermItem,
   ProductItem,
 } from '@/types/odoo'
@@ -38,6 +42,8 @@ const customerQrInput = ref('')
 const customer = ref<CustomerDetailData | null>(null)
 const createdOrder = ref<DraftOrderResult | null>(null)
 const selectedBonType = ref<DraftOrderBonType | ''>('')
+const editOrderId = ref<number | null>(null)
+const editScope = ref<FrontendOrderScope>('susu-olahan')
 
 const paymentTerms = ref<PaymentTermItem[]>([])
 const bonTypeOptions: Array<{ value: DraftOrderBonType; label: string }> = [
@@ -63,11 +69,86 @@ const form = reactive({
 const grandTotal = computed(() =>
   form.lines.reduce((sum, item) => sum + item.product_uom_qty * item.price_unit, 0),
 )
+const isEditMode = computed(() => Boolean(editOrderId.value))
 
 const customerHasShippingWilayah = computed(() => Boolean(customer.value?.shipping_wilayah_id))
 const selectedTypeRequiresShipping = computed(() =>
-  Boolean(selectedBonType.value && selectedBonType.value !== 'non-ongkir'),
+  isEditMode.value
+    ? true
+    : Boolean(selectedBonType.value && selectedBonType.value !== 'non-ongkir'),
 )
+
+function fromOdooDateTime(value?: string | null) {
+  if (!value) {
+    return ''
+  }
+
+  const normalized = value.replace(' ', 'T')
+  return normalized.length >= 16 ? normalized.slice(0, 16) : normalized
+}
+
+function parseDetailLines(detail: FrontendOrderDetailData): OrderLineForm[] {
+  if (detail.quantities && Object.keys(detail.quantities).length > 0) {
+    return Object.entries(detail.quantities)
+      .map(([productId, qty], index) => ({
+        rowId: Date.now() + index,
+        product_id: Number(productId),
+        product_uom_qty: Number(qty),
+        price_unit: 0,
+      }))
+      .filter((line) => line.product_id > 0 && line.product_uom_qty > 0)
+  }
+
+  const fromGrid = detail.grid_lines ?? []
+  if (fromGrid.length > 0) {
+    return fromGrid
+      .map((line, index) => ({
+        rowId: Date.now() + index,
+        product_id: Number(line.product_id),
+        product_uom_qty: Number(line.quantity ?? 0),
+        price_unit: Number(line.price_unit ?? 0),
+      }))
+      .filter((line) => line.product_id > 0 && line.product_uom_qty > 0)
+  }
+
+  const fromLines = detail.lines ?? []
+  return fromLines
+    .map((line, index) => ({
+      rowId: Date.now() + index,
+      product_id: Number(line.product_id),
+      product_uom_qty: Number(line.product_uom_qty ?? line.quantity ?? 0),
+      price_unit: Number(line.price_unit ?? 0),
+    }))
+    .filter((line) => line.product_id > 0 && line.product_uom_qty > 0)
+}
+
+async function loadOrderForEdit(orderId: number, scope: FrontendOrderScope) {
+  loadingMaster.value = true
+  errorMessage.value = ''
+
+  try {
+    const response = await getFrontendOrderDetail(sessionStore.baseUrl, orderId, scope)
+    const detail = response.data
+
+    editOrderId.value = orderId
+    editScope.value = scope
+    form.commitment_date = fromOdooDateTime(detail.commitment_date)
+    form.payment_term_id = detail.payment_term_id ?? null
+
+    const mappedLines = parseDetailLines(detail)
+    form.lines = mappedLines.length > 0 ? mappedLines : form.lines
+
+    if (detail.customer_qr_ref) {
+      customerQrInput.value = detail.customer_qr_ref
+      await fetchCustomerByQrValue(detail.customer_qr_ref)
+    }
+  } catch (error) {
+    errorMessage.value =
+      error instanceof Error ? error.message : 'Gagal memuat detail Sales Order untuk edit.'
+  } finally {
+    loadingMaster.value = false
+  }
+}
 
 function lineSubtotal(line: OrderLineForm) {
   return line.product_uom_qty * line.price_unit
@@ -161,7 +242,7 @@ function validateForm() {
     return 'Term of Payment wajib dipilih.'
   }
 
-  if (!selectedBonType.value) {
+  if (!isEditMode.value && !selectedBonType.value) {
     return 'Jenis transaksi wajib dipilih.'
   }
 
@@ -187,11 +268,6 @@ async function submitDraftOrder() {
   loadingSubmit.value = true
 
   try {
-    const bonType = selectedBonType.value
-    if (!bonType) {
-      throw new Error('Jenis transaksi belum dipilih.')
-    }
-
     const payloadLines = form.lines
       .filter((line) => line.product_id && line.product_uom_qty > 0)
       .map((line) => ({
@@ -200,18 +276,44 @@ async function submitDraftOrder() {
         price_unit: Number(line.price_unit),
       }))
 
-    const response = await createDraftOrderByBonType(sessionStore.baseUrl, bonType, {
+    const commonPayload = {
       partner_id: customer.value?.partner_id,
       customer_qr_ref: customer.value?.customer_qr_ref,
       commitment_date: toOdooDateTime(form.commitment_date),
       payment_term_id: form.payment_term_id ?? undefined,
       order_line: payloadLines,
-    })
+    }
+
+    let response: { data: DraftOrderResult }
+
+    if (isEditMode.value) {
+      response = await updateFrontendOrder(
+        sessionStore.baseUrl,
+        {
+          ...commonPayload,
+          sale_order_id: Number(editOrderId.value),
+        },
+        editScope.value,
+      )
+    } else {
+      const bonType = selectedBonType.value
+      if (!bonType) {
+        throw new Error('Jenis transaksi belum dipilih.')
+      }
+      response = await createDraftOrderByBonType(sessionStore.baseUrl, bonType, commonPayload)
+    }
 
     createdOrder.value = response.data
-    successMessage.value = 'Draft Sales Order berhasil dibuat.'
+    successMessage.value = isEditMode.value
+      ? 'Draft Sales Order berhasil diperbarui.'
+      : 'Draft Sales Order berhasil dibuat.'
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : 'Gagal membuat draft Sales Order.'
+    errorMessage.value =
+      error instanceof Error
+        ? error.message
+        : isEditMode.value
+          ? 'Gagal memperbarui draft Sales Order.'
+          : 'Gagal membuat draft Sales Order.'
   } finally {
     loadingSubmit.value = false
   }
@@ -219,6 +321,13 @@ async function submitDraftOrder() {
 
 onMounted(async () => {
   await loadMaster()
+
+  const scopeQuery = route.query.scope === 'minimarket' ? 'minimarket' : 'susu-olahan'
+  const editId = Number(route.query.edit_id)
+  if (Number.isFinite(editId) && editId > 0) {
+    await loadOrderForEdit(editId, scopeQuery)
+    return
+  }
 
   if (typeof route.query.qr === 'string' && route.query.qr) {
     customerQrInput.value = route.query.qr
@@ -230,7 +339,9 @@ onMounted(async () => {
 <template>
   <section class="space-y-5">
     <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-      <h1 class="text-xl font-bold text-slate-900">Create Draft Sales Order</h1>
+      <h1 class="text-xl font-bold text-slate-900">
+        {{ isEditMode ? 'Edit Draft Sales Order' : 'Create Draft Sales Order' }}
+      </h1>
       <p class="mt-1 text-sm text-slate-600">
         Scan QR customer untuk autofill data, lalu isi tanggal pengiriman, payment term, jenis
         transaksi, dan item produk. Untuk jenis transaksi non ongkir, backend tidak menambahkan
@@ -345,7 +456,7 @@ onMounted(async () => {
           </select>
         </label>
 
-        <div class="space-y-1 md:col-span-3">
+        <div v-if="!isEditMode" class="space-y-1 md:col-span-3">
           <span class="text-sm font-medium text-slate-700">Jenis Transaksi</span>
           <select
             v-model="selectedBonType"
@@ -442,6 +553,10 @@ onMounted(async () => {
       >
         <p><span class="font-semibold">Order:</span> {{ createdOrder.name }}</p>
         <p><span class="font-semibold">State:</span> {{ createdOrder.state }}</p>
+        <p v-if="createdOrder.sale_order_type_label || createdOrder.sale_order_type">
+          <span class="font-semibold">Tipe SO:</span>
+          {{ createdOrder.sale_order_type_label || createdOrder.sale_order_type }}
+        </p>
         <p>
           <span class="font-semibold">Mode Pengiriman:</span>
           <span
@@ -460,6 +575,9 @@ onMounted(async () => {
           <span class="font-semibold">Amount Total:</span>
           {{ formatCurrency(createdOrder.amount_total) }}
         </p>
+        <p v-if="createdOrder.is_duplicate_request" class="font-medium text-sky-700">
+          Draft ini berasal dari request duplikat (idempotency aktif).
+        </p>
         <p v-if="createdOrder.wilayah_name">
           <span class="font-semibold">Wilayah Customer:</span> {{ createdOrder.wilayah_name }}
         </p>
@@ -475,7 +593,13 @@ onMounted(async () => {
         class="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300"
         @click="submitDraftOrder"
       >
-        {{ loadingSubmit ? 'Menyimpan...' : 'Create Draft Sales Order' }}
+        {{
+          loadingSubmit
+            ? 'Menyimpan...'
+            : isEditMode
+              ? 'Update Draft Sales Order'
+              : 'Create Draft Sales Order'
+        }}
       </button>
     </section>
   </section>

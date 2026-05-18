@@ -6,6 +6,10 @@ import type {
   CustomerQrPayloadData,
   DraftOrderPayload,
   DraftOrderResult,
+  FrontendOrderDetailData,
+  FrontendOrderListData,
+  FrontendOrderListPayload,
+  FrontendOrderScope,
   OdooAuthData,
   OrderTypeItem,
   PaymentTermItem,
@@ -99,6 +103,15 @@ function emitApiToast(detail: ApiToastDetail) {
 
 function normalizeBaseUrl(baseUrl: string) {
   return baseUrl.replace(/\/$/, '')
+}
+
+function buildFrontendRequestUid(prefix = 'SO-FRONTEND') {
+  const stamp = new Date()
+    .toISOString()
+    .replace(/[-:.TZ]/g, '')
+    .slice(0, 14)
+  const random = Math.random().toString(36).slice(2, 8).toUpperCase()
+  return `${prefix}-${stamp}-${random}`
 }
 
 function unwrapApiResponse<T>(payload: unknown): ApiResponse<T> | null {
@@ -218,7 +231,14 @@ export function authenticate(
 
 export function getProducts(
   baseUrl: string,
-  payload: { search?: string; limit?: number; offset?: number; partner_id?: number | null } = {},
+  payload: {
+    search?: string
+    limit?: number
+    offset?: number
+    partner_id?: number | null
+    customer_qr_ref?: string
+    useFrontendCategoryFlow?: boolean
+  } = {},
 ) {
   const body: Record<string, unknown> = {
     search: payload.search ?? '',
@@ -228,9 +248,18 @@ export function getProducts(
 
   if (payload.partner_id) {
     body.partner_id = payload.partner_id
+    body.customer_id = payload.partner_id
   }
 
-  return postJsonRpc<unknown>(baseUrl, '/api/sales/products', body).then((response) => {
+  if (payload.customer_qr_ref) {
+    body.customer_qr_ref = payload.customer_qr_ref
+  }
+
+  const endpoint = payload.useFrontendCategoryFlow
+    ? '/api/sales/susu-olahan/products'
+    : '/api/sales/products'
+
+  return postJsonRpc<unknown>(baseUrl, endpoint, body).then((response) => {
     const items = extractItems(response.data)
       .map((item): ProductItem | null => {
         if (!isRecord(item)) {
@@ -344,8 +373,11 @@ export async function getOrderTypes(baseUrl: string) {
     dedupedItems.length > 0
       ? dedupedItems
       : [
+          { value: 'reguler', label: 'Reguler' },
           { value: 'kering', label: 'Kering' },
-          { value: 'basah', label: 'Basah' },
+          { value: 'partus', label: 'Partus' },
+          { value: 'peralatan', label: 'Peralatan' },
+          { value: 'silase', label: 'Silase' },
         ]
 
   return {
@@ -406,7 +438,14 @@ export function getOrdersByQr(
 }
 
 export function createDraftOrder(baseUrl: string, payload: DraftOrderPayload) {
-  return postJsonRpc<DraftOrderResult>(baseUrl, '/api/sales/draft-order', payload)
+  const frontendRequestUid =
+    payload.frontend_request_uid ?? payload.idempotency_key ?? buildFrontendRequestUid()
+
+  return postJsonRpc<DraftOrderResult>(baseUrl, '/api/sales/draft-order', {
+    ...payload,
+    frontend_request_uid: frontendRequestUid,
+    idempotency_key: payload.idempotency_key ?? frontendRequestUid,
+  })
 }
 
 export function createDraftOrderByBonType(
@@ -414,7 +453,77 @@ export function createDraftOrderByBonType(
   bonType: DraftOrderBonType,
   payload: DraftOrderPayload,
 ) {
-  return postJsonRpc<DraftOrderResult>(baseUrl, `/api/sales/draft-order/${bonType}`, payload)
+  const frontendRequestUid =
+    payload.frontend_request_uid ?? payload.idempotency_key ?? buildFrontendRequestUid()
+
+  return postJsonRpc<DraftOrderResult>(baseUrl, `/api/sales/draft-order/${bonType}`, {
+    ...payload,
+    frontend_request_uid: frontendRequestUid,
+    idempotency_key: payload.idempotency_key ?? frontendRequestUid,
+  })
+}
+
+function getOrderScopePrefix(scope: FrontendOrderScope = 'susu-olahan') {
+  return scope === 'minimarket' ? '/api/sales/minimarket' : '/api/sales/susu-olahan'
+}
+
+export function listFrontendOrders(
+  baseUrl: string,
+  payload: FrontendOrderListPayload = {},
+  scope: FrontendOrderScope = 'susu-olahan',
+) {
+  const prefix = getOrderScopePrefix(scope)
+  return postJsonRpc<FrontendOrderListData>(baseUrl, `${prefix}/orders`, {
+    frontend_only: payload.frontend_only ?? true,
+    unpaid_only: payload.unpaid_only ?? true,
+    date_from: payload.date_from,
+    date_to: payload.date_to,
+    date_field: payload.date_field,
+    payment_status: payload.payment_status,
+    payment_statuses: payload.payment_statuses,
+    include_lines: payload.include_lines,
+    include_accounting: payload.include_accounting,
+    limit: payload.limit ?? 50,
+    offset: payload.offset ?? 0,
+  })
+}
+
+export function getFrontendOrderDetail(
+  baseUrl: string,
+  saleOrderId: number,
+  scope: FrontendOrderScope = 'susu-olahan',
+) {
+  const prefix = getOrderScopePrefix(scope)
+  return postJsonRpc<FrontendOrderDetailData>(baseUrl, `${prefix}/order-detail`, {
+    sale_order_id: saleOrderId,
+  })
+}
+
+export function updateFrontendOrder(
+  baseUrl: string,
+  payload: DraftOrderPayload & { sale_order_id: number },
+  scope: FrontendOrderScope = 'susu-olahan',
+) {
+  const prefix = getOrderScopePrefix(scope)
+  const frontendRequestUid =
+    payload.frontend_request_uid ?? payload.idempotency_key ?? buildFrontendRequestUid('SO-UPDATE')
+
+  return postJsonRpc<DraftOrderResult>(baseUrl, `${prefix}/update-order`, {
+    ...payload,
+    frontend_request_uid: frontendRequestUid,
+    idempotency_key: payload.idempotency_key ?? frontendRequestUid,
+  })
+}
+
+export function confirmFrontendOrder(
+  baseUrl: string,
+  saleOrderId: number,
+  scope: FrontendOrderScope = 'susu-olahan',
+) {
+  const prefix = getOrderScopePrefix(scope)
+  return postJsonRpc<DraftOrderResult>(baseUrl, `${prefix}/confirm-order`, {
+    sale_order_id: saleOrderId,
+  })
 }
 
 export async function debugAuthenticateCors(

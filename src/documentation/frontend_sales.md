@@ -29,12 +29,18 @@ Fokus dokumen ini:
 | `/api/sales/orders-by-qr` | `POST` | user | histori Sales Order customer dari `customer_qr_ref` |
 | `/api/sales/susu-olahan/customers` | `POST` | user | list customer global untuk frontend SUSU OLAHAN |
 | `/api/sales/susu-olahan/customer-search` | `POST` | user | autocomplete customer global untuk UI HP/typeahead |
-| `/api/sales/susu-olahan/products` | `POST` | user | list produk saleable kategori SUSU OLAHAN (wajib customer, harga ikut pricelist customer) |
-| `/api/sales/susu-olahan/shipping-products` | `POST` | user | list produk ongkos kirim SUSU OLAHAN untuk dropdown |
-| `/api/sales/susu-olahan/draft-order` | `POST` | user | create draft Sales Order SUSU OLAHAN dengan auto ongkir |
+| `/api/sales/susu-olahan/products` | `POST` | user | list produk saleable sesuai Business Category akun user (wajib customer, harga ikut pricelist customer) |
+| `/api/sales/susu-olahan/shipping-products` | `POST` | user | list produk ongkos kirim sesuai Business Category akun user untuk dropdown |
+| `/api/sales/susu-olahan/draft-order` | `POST` | user | create draft Sales Order memakai Business Category akun user dengan auto ongkir |
+| `/api/sales/susu-olahan/order-detail` | `POST` | user | detail Sales Order SUSU OLAHAN untuk view/edit frontend |
+| `/api/sales/susu-olahan/update-order` | `POST` | user | update draft Sales Order SUSU OLAHAN dari frontend |
+| `/api/sales/susu-olahan/confirm-order` | `POST` | user | confirm Sales Order SUSU OLAHAN dari frontend |
 | `/api/sales/draft-order` | `POST` | user | create draft Sales Order multi-item |
 | `/api/sales/minimarket/grid-products` | `POST` | user | list produk untuk UI grid/sheet quantity minimarket (wajib customer, harga ikut pricelist customer) |
 | `/api/sales/minimarket/draft-order` | `POST` | user | create draft Sales Order dari quantity grid minimarket |
+| `/api/sales/minimarket/order-detail` | `POST` | user | detail Sales Order minimarket untuk view/edit frontend |
+| `/api/sales/minimarket/update-order` | `POST` | user | update draft Sales Order minimarket dari frontend |
+| `/api/sales/minimarket/confirm-order` | `POST` | user | confirm Sales Order minimarket dari frontend |
 | `/api/sales/draft-order/bon-kering` | `POST` | user | create draft Sales Order bon kering |
 | `/api/sales/draft-order/bon-partus` | `POST` | user | create draft Sales Order bon partus |
 | `/api/sales/draft-order/bon-reguler` | `POST` | user | create draft Sales Order bon reguler |
@@ -68,6 +74,23 @@ Catatan:
 - jika frontend berjalan beda domain, CORS dan cookie policy perlu disiapkan di server
 - untuk aplikasi Vue.js, semua request session-based sebaiknya selalu memakai `credentials: "include"`
 - untuk endpoint list product minimarket/susu olahan, frontend harus memilih customer terlebih dahulu sebelum memanggil endpoint
+
+## Prasyarat Akun Frontend
+
+Sebelum user dipakai login dari frontend, pastikan akun Odoo sudah terdaftar pada Business Category dan Team Sales yang benar.
+
+Ketentuan backend saat ini:
+
+- user wajib memiliki akses Business Category melalui `Allowed Business Categories` atau membership Team Sales
+- user wajib memiliki `Active Business Category` atau `Default Business Category` yang valid; jika user hanya punya satu effective category, backend dapat memakai kategori tersebut otomatis
+- untuk flow minimarket/susu olahan, category yang dipakai adalah active/default Business Category akun user
+- user wajib menjadi leader/member pada `Sales Team` yang memakai Business Category yang sama
+- frontend tidak perlu mengirim `business_category_id` untuk flow frontend; jika dikirim, nilainya harus sama dengan active/default Business Category akun user
+- `team_id` juga opsional; jika dikirim, team tersebut harus team user yang login dan Business Category team harus sama dengan active/default Business Category user
+- semua endpoint frontend yang mengambil produk, Sales Order, customer context, delivery report, dan accounting summary memakai Business Category akun user saat ini
+- list/detail/update/confirm Sales Order frontend dibatasi ke Business Category akun user saat ini
+
+Jika user punya akses ke beberapa Business Category, admin wajib mengisi `Active Business Category` atau `Default Business Category` pada user agar frontend tidak ambigu.
 
 ## JSON-RPC Request Format
 
@@ -159,33 +182,35 @@ Catatan implementasi:
 
 ## Endpoint Master Data
 
-### Setup Business Category `SUSU OLAHAN`
+### Setup Business Category Frontend
 
-Untuk frontend minimarket susu olahan, buat master `Business Category` dengan nama resmi:
+Untuk frontend minimarket/susu olahan, siapkan master `Business Category` sesuai unit bisnis yang akan dipakai user. Nama kategori tidak wajib `SUSU OLAHAN`; route `/susu-olahan` hanya menjadi nama endpoint/flow legacy.
 
 ```text
-SUSU OLAHAN
+Contoh: SUSU OLAHAN, MINIMARKET, SALES RETAIL
 ```
 
-Endpoint khusus susu olahan melakukan lookup secara case-insensitive, sehingga nama `susu olahan` juga terbaca. Namun untuk menjaga master data rapi, gunakan satu nama resmi saja: `SUSU OLAHAN`.
+Backend menentukan kategori dari active/default Business Category akun user. Jika user punya beberapa effective Business Category, admin wajib memilih active/default category agar frontend tidak ambigu.
 
 Langkah ringkas:
 
 1. Masuk ke Sales Odoo.
 2. Buka menu `Business Categories`.
-3. Buat category baru dengan `Name = SUSU OLAHAN`.
-4. Isi `Code`, misalnya `SUSU_OLAHAN`.
+3. Buat category baru sesuai kebutuhan unit bisnis.
+4. Isi `Code` sesuai kode internal.
 5. Pilih `Company`.
 6. Isi `Analytic Account` jika transaksi kategori ini perlu analytic khusus.
 7. Aktifkan `Gunakan Ongkos Kirim di Sales Order` jika order minimarket tetap memakai auto ongkir.
-8. Beri akses user Sales melalui `Allowed Business Categories` atau Team Sales yang memakai category `SUSU OLAHAN`.
-9. Set produk susu kemasan ke Business Category `SUSU OLAHAN`. Field ini tersedia dari modul `grt_inventory_business_category`.
-10. Buat kategori produk `All / Saleable / Ongkos Kirim`.
-11. Set produk ongkos kirim ke kategori tersebut dan Business Category `SUSU OLAHAN`.
-12. Buka `Sales > Frontend Shipping Rules`.
-13. Untuk setiap wilayah customer, buat rule dan pilih `Produk Ongkir Wilayah` dari produk ongkos kirim SUSU OLAHAN.
-14. Isi `Tarif per Unit`.
-15. Customer pada list susu olahan diambil dari master customer global; Business Category tetap dipakai sebagai konteks produk/order, bukan filter master customer.
+8. Beri akses user Sales melalui `Allowed Business Categories` atau Team Sales yang memakai category tersebut.
+9. Isi `Active Business Category` atau `Default Business Category` user dengan category tersebut.
+10. Pastikan user menjadi leader/member pada `Sales Team` dengan Business Category yang sama.
+11. Set produk yang dijual frontend ke Business Category yang sama. Field ini tersedia dari modul `grt_inventory_business_category`.
+12. Buat kategori produk `All / Saleable / Ongkos Kirim`.
+13. Set produk ongkos kirim ke kategori tersebut dan Business Category yang sama.
+14. Buka `Sales > Frontend Shipping Rules`.
+15. Untuk setiap wilayah customer, buat rule dan pilih `Produk Ongkir Wilayah` dari produk ongkos kirim pada Business Category tersebut.
+16. Isi `Tarif per Unit`.
+17. Customer pada list susu olahan diambil dari master customer global; Business Category tetap dipakai sebagai konteks produk/order, bukan filter master customer.
 
 ### `POST /api/sales/products`
 
@@ -209,6 +234,8 @@ Mengambil list produk untuk kebutuhan form Sales Order.
 {
   "status": "success",
   "data": {
+    "business_category_id": 2,
+    "business_category_name": "MINIMARKET",
     "items": [
       {
         "product_id": 101,
@@ -226,10 +253,16 @@ Mengambil list produk untuk kebutuhan form Sales Order.
 }
 ```
 
+Catatan:
+
+- `/api/sales/products` juga mengikuti active/default Business Category akun user.
+- Jika frontend mengirim `business_category_id`, nilainya harus sama dengan Business Category akun user.
+- Produk dari Business Category lain tidak dikembalikan.
+
 ### `POST /api/sales/minimarket/grid-products`
 
 Mengambil produk dalam format grid entry untuk UI Sales minimarket. Endpoint ini mengembalikan `columns` dan `items`, dengan field `quantity` sebagai input utama frontend Vue.
-Untuk flow minimarket di modul ini, backend otomatis membatasi produk ke Business Category `SUSU OLAHAN`.
+Untuk flow minimarket di modul ini, backend otomatis membatasi produk ke active/default Business Category akun user.
 Endpoint ini wajib menerima customer (`customer_id`/`partner_id` atau `customer_qr_ref`) karena harga produk mengikuti pricelist customer terpilih.
 
 Dokumentasi lengkap flow minimarket ada di `minimarket_sales_order_entry_ui.md`.
@@ -289,16 +322,30 @@ Mengambil daftar Payment Terms.
     "items": [
       {
         "payment_term_id": 1,
-        "name": "Cash"
+        "id": 1,
+        "name": "Kontan",
+        "display_name": "Kontan",
+        "company_id": false,
+        "company_name": false
       },
       {
         "payment_term_id": 2,
-        "name": "30 Days"
+        "id": 2,
+        "name": "30 Hari",
+        "display_name": "30 Hari",
+        "company_id": 1,
+        "company_name": "PT Contoh"
       }
-    ]
+    ],
+    "count": 2
   }
 }
 ```
+
+Catatan:
+
+- Endpoint memakai konteks company user dan `sudo()` agar daftar Term of Payment sama dengan master yang tersedia di Odoo Sales.
+- Kirim `company_id` jika frontend perlu memaksa company tertentu.
 
 ## Panduan Frontend Jika Memakai `customer_qr_ref`
 
@@ -925,6 +972,7 @@ Minimal kirim `partner_id` atau `customer_qr_ref`.
   "params": {
     "partner_id": 45,
     "customer_qr_ref": "CUSTQR2603-000001",
+    "frontend_request_uid": "SO-FRONT-20260315-USER12-0001",
     "commitment_date": "2026-03-15 10:00:00",
     "payment_term_id": 4,
     "team_id": 3,
@@ -959,6 +1007,15 @@ Minimal kirim `partner_id` atau `customer_qr_ref`.
 | `price_unit` | float | tidak | harga manual; jika kosong pakai harga product/pricelist |
 | `name` | string | tidak | deskripsi item |
 
+#### Guard anti double-create
+
+Semua endpoint create draft order frontend mendukung idempotency guard:
+
+- Frontend disarankan mengirim `frontend_request_uid` atau `idempotency_key` berisi UUID/nomor submit unik.
+- Jika key yang sama dikirim ulang, backend mengembalikan Sales Order existing dan tidak membuat order baru.
+- Jika key belum dikirim, backend tetap membuat fingerprint dari payload dan menahan payload identik dalam window pendek untuk mencegah double-click cepat.
+- Response duplicate tetap `status: "success"` dengan `message: "Draft sales order already exists"` dan `data.is_duplicate_request = true`.
+
 #### Response
 
 ```json
@@ -973,6 +1030,8 @@ Minimal kirim `partner_id` atau `customer_qr_ref`.
     "line_count": 4,
     "terms_and_conditions": "Kirim pagi",
     "is_frontend_order": true,
+    "is_duplicate_request": false,
+    "frontend_request_uid": "SO-FRONT-20260315-USER12-0001",
     "skip_frontend_shipping": false,
     "wilayah_id": 15,
     "wilayah_name": "Kecamatan A",
@@ -987,13 +1046,109 @@ Minimal kirim `partner_id` atau `customer_qr_ref`.
 
 - `partner_id` atau `customer_qr_ref` wajib ada
 - jika keduanya dikirim, nilainya harus saling cocok
+- `frontend_request_uid`/`idempotency_key` sangat disarankan untuk mencegah double submit dari frontend
 - `payment_term_id` harus valid
+- akun user login wajib punya active/default Business Category yang valid
+- akun user login wajib masuk Sales Team pada Business Category tersebut
+- jika `business_category_id` dikirim, nilainya harus sama dengan active/default Business Category akun user
+- jika `team_id` dikirim, team tersebut harus team user login dan Business Category team harus sama dengan active/default Business Category user
 - customer wajib punya `Wilayah Ongkir`
 - `order_line` wajib minimal 1 item
 - setiap line wajib punya `product_id` dan `product_uom_qty > 0`
 - backend otomatis menambahkan line ongkir untuk order frontend berdasarkan rule wilayah customer
 - backend menghitung nominal line ongkir dari `total unit produk x tarif per unit` pada rule
 - jika rule ongkir frontend tidak ditemukan, pembuatan order akan ditolak
+
+### Update Draft Sales Order Frontend
+
+Untuk Sales Order minimarket/susu olahan yang sudah dibuat dari frontend, gunakan endpoint update berikut:
+
+- `POST /api/sales/minimarket/update-order`
+- alias: `POST /api/sales/minimarket/draft-order/update`
+- `POST /api/sales/susu-olahan/update-order`
+- alias: `POST /api/sales/susu-olahan/draft-order/update`
+
+Payload update sama dengan payload create draft order, ditambah identifier Sales Order. Identifier wajib salah satu dari `sale_order_id`, `order_id`, `id`, atau `name`.
+
+```json
+{
+  "params": {
+    "sale_order_id": 120,
+    "partner_id": 45,
+    "customer_qr_ref": "CUSTQR2603-000001",
+    "frontend_request_uid": "SO-MM-20260430-USER12-0001-EDIT1",
+    "commitment_date": "2026-04-30 13:00:00",
+    "payment_term_id": 4,
+    "store_id": 1,
+    "delivery_vehicle_id": 5,
+    "fleet_driver_id": 7,
+    "departure_datetime": "2026-04-30 13:00:00",
+    "note": "Revisi PO minimarket cabang A",
+    "quantities": {
+      "101": 30,
+      "102": 0,
+      "103": 6
+    }
+  }
+}
+```
+
+Aturan update:
+
+- Hanya Sales Order frontend dengan state `draft` atau `sent` yang dapat di-update.
+- Baris produk lama diganti penuh sesuai `grid_lines` atau `quantities` terbaru.
+- Metadata toko, kendaraan, sopir, tanggal berangkat, region, dan booking fleet ikut di-update. Jika booking belum ada, backend membuat booking baru.
+- Response sukses memakai format yang sama dengan create, dengan `message: "Draft sales order updated"`.
+
+### Confirm Sales Order Frontend
+
+Untuk langsung confirm Sales Order dari frontend, gunakan endpoint berikut:
+
+- `POST /api/sales/minimarket/confirm-order`
+- alias: `POST /api/sales/minimarket/draft-order/confirm`
+- `POST /api/sales/susu-olahan/confirm-order`
+- alias: `POST /api/sales/susu-olahan/draft-order/confirm`
+
+Request:
+
+```json
+{
+  "params": {
+    "sale_order_id": 120
+  }
+}
+```
+
+Identifier bisa memakai `sale_order_id`, `order_id`, `id`, atau `name`. Endpoint hanya menerima Sales Order frontend.
+
+Confirm memakai `action_confirm()` standar Odoo. Jika approval dua tahap aktif, Sales Order harus sudah `approval_state = "approved"`; jika belum, response akan `status: "error"` dengan pesan validasi Odoo. Jika Sales Order sudah `sale` atau `done`, response tetap success dengan `message: "Sales order already confirmed"`.
+
+### Detail Sales Order Frontend
+
+Untuk membuka halaman detail atau edit Sales Order frontend, gunakan:
+
+- `POST /api/sales/minimarket/order-detail`
+- alias: `POST /api/sales/minimarket/order/detail`
+- `POST /api/sales/susu-olahan/order-detail`
+- alias: `POST /api/sales/susu-olahan/order/detail`
+
+Request:
+
+```json
+{
+  "params": {
+    "sale_order_id": 120
+  }
+}
+```
+
+Response mengembalikan header order, `lines`, `grid_lines`, dan `quantities` untuk prefill grid Vue. Field edit yang penting:
+
+- `can_edit` / `can_update`: hanya `true` untuk state `draft` dan `sent`
+- `update_endpoint`: endpoint update yang sesuai scope
+- `confirm_endpoint`: endpoint confirm yang sesuai scope
+- `can_confirm`: `true` jika state masih `draft/sent` dan `approval_state = "approved"`
+- `requires_approval_before_confirm`: `true` jika frontend perlu menahan tombol confirm sampai approval selesai
 
 ### `POST /api/sales/minimarket/draft-order`
 
@@ -1051,7 +1206,7 @@ Catatan:
 
 ### `POST /api/sales/susu-olahan/draft-order`
 
-Membuat draft Sales Order khusus Business Category `SUSU OLAHAN`. Payload sama dengan endpoint minimarket, tetapi backend otomatis mengisi/menjaga `business_category_id = SUSU OLAHAN`.
+Membuat draft Sales Order memakai active/default Business Category akun user. Payload sama dengan endpoint minimarket; route `/susu-olahan` tetap tersedia sebagai alias flow lama.
 
 Backend juga otomatis menambahkan line ongkir dari konfigurasi `Sales > Frontend Shipping Rules`: produk ongkir diambil dari `Produk Ongkir Wilayah`, lalu nominal dihitung dari `total quantity produk x Tarif per Unit`.
 
@@ -1079,7 +1234,7 @@ Catatan:
 - customer wajib punya `Wilayah Ongkir`
 - wilayah customer wajib punya rule di `sale.frontend.shipping.rule`
 - produk ongkir rule wajib `Can be Sold`
-- semua produk order wajib punya Business Category `SUSU OLAHAN`
+- semua produk order wajib punya Business Category yang sama dengan active/default Business Category akun user
 - tipe `peralatan` tidak diterima di endpoint ini karena behavior-nya memang non-ongkir
 
 ### Endpoint Draft Order Berdasarkan Jenis Transaksi
@@ -1379,7 +1534,7 @@ Mulai update ini, frontend dapat diminta mengirim `sale_order_type` saat membuat
 
 Kapan wajib:
 
-- wajib jika `business_category_id` atau `team_id` yang dipakai mengarah ke business category dengan setting `Gunakan Tipe Sales Order`
+- wajib jika active/default Business Category akun user mengaktifkan setting `Gunakan Tipe Sales Order`
 - tidak wajib untuk business category yang tidak mengaktifkan fitur tersebut
 
 Nilai yang valid:
@@ -1468,3 +1623,63 @@ Tambahan response draft order jika modul `grt_sales_commission` terpasang:
 
 - `sales_commission_enabled`
 - `sales_commission_method`
+
+## Update Frontend Minimarket Fleet dan List SO (2026-04-29)
+
+Endpoint list Sales Order untuk frontend:
+
+- `POST /api/sales/orders`
+- `POST /api/sales/sales-orders`
+- `POST /api/sales/minimarket/orders`
+- `POST /api/sales/susu-olahan/orders`
+- `POST /api/sales/orders-by-qr`
+
+Payload list yang disarankan:
+
+```json
+{
+  "params": {
+    "frontend_only": true,
+    "unpaid_only": true,
+    "date_from": "2026-04-01",
+    "date_to": "2026-04-30",
+    "include_lines": true,
+    "include_accounting": true
+  }
+}
+```
+
+Response list memuat `business_category_id`, `analytic_account_id`, `payment_status`, toko, mobil, dan relasi booking fleet. Business Category list selalu mengikuti active/default Business Category akun user. Jika `include_accounting = true`, field `accounting` menghitung receivable/payable customer pada Business Category Sales Order tersebut.
+
+Catatan:
+
+- Frontend sebaiknya tidak mengirim `business_category_id` pada list SO.
+- Jika dikirim, nilainya harus sama dengan active/default Business Category akun user.
+- `/api/sales/orders-by-qr` juga mengikuti Business Category akun user, bukan kategori dari payload bebas.
+
+Untuk menampilkan hanya SO yang belum full paid, kirim `unpaid_only = true`. Frontend juga bisa memakai `payment_status` untuk satu status atau `payment_statuses` untuk beberapa status.
+
+Endpoint master fleet untuk dropdown frontend:
+
+- `POST /api/sales/susu-olahan/stores`
+- `POST /api/sales/susu-olahan/vehicles`
+- `POST /api/sales/susu-olahan/fleet-regions`
+
+Endpoint kendaraan sekarang mengembalikan `fleet_driver_id` dan `grt_driver_id`. Gunakan nilai ini sebagai sopir default saat user memilih mobil.
+
+Endpoint create minimarket:
+
+- `POST /api/sales/minimarket/draft-order`
+- `POST /api/sales/susu-olahan/draft-order`
+
+Tambahan payload opsional:
+
+- `fleet_driver_id`/`grt_driver_id`/`sopir_id`
+- `departure_datetime`/`delivery_datetime`/`booking_datetime`
+- `departure_region_id`
+- `destination_region_id`
+- `fleet_booking_state`: `draft` atau `confirmed`
+
+Setelah Sales Order draft berhasil dibuat, backend otomatis membuat `grt.fleet.booking` dengan `sale_order_id`, `vehicle_id`, `driver_id`, tanggal/jam keberangkatan, region asal, dan region tujuan. Jika sopir tidak dikirim, backend memakai Driver Default Fleet pada kendaraan. Jika `destination_region_id` tidak dikirim, toko/minimarket menjadi wilayah tujuan; jika `departure_region_id` tidak dikirim, backend memakai wilayah company sebagai wilayah pemberangkatan.
+
+Untuk endpoint list Sales Order, `date_from` dan `date_to` default mencari pada `date_order` atau `commitment_date`. Kirim `date_field` jika frontend perlu memaksa filter tanggal pada salah satu field saja.
